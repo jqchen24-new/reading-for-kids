@@ -1,6 +1,7 @@
 import { generateSceneIllustrationDataUrl } from './sceneIllustration.js'
 import { readGeminiApiKeyFromEnv } from './geminiApiKey.js'
 import { readRequestBody } from './readRequestBody.js'
+import { isSceneIllustrationsEnabled } from './sceneIllustrationsEnv.js'
 
 function sendJson(res, statusCode, obj) {
   res.statusCode = statusCode
@@ -29,7 +30,7 @@ export default async function handler(req, res) {
     return
   }
 
-  if (process.env.SCENE_ILLUSTRATIONS?.trim() !== '1') {
+  if (!isSceneIllustrationsEnabled()) {
     sendJson(res, 503, {
       error: 'Scene illustrations are disabled.',
       code: 'ILLUSTRATIONS_DISABLED',

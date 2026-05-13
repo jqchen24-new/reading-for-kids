@@ -1,5 +1,27 @@
 import { readGeminiApiKeyFromEnv } from './geminiApiKey.js'
 
+/** Ratios supported by ImageConfig (string), per Generative Language API. */
+const GEMINI_IMAGE_ASPECT_RATIOS = new Set([
+  '1:1',
+  '2:3',
+  '3:2',
+  '3:4',
+  '4:3',
+  '9:16',
+  '16:9',
+  '21:9',
+])
+
+/**
+ * @param {string} raw
+ * @returns {string}
+ */
+function normalizeGeminiImageAspectRatio(raw) {
+  const v = typeof raw === 'string' ? raw.trim().replace(/\u2236/g, ':') : ''
+  if (GEMINI_IMAGE_ASPECT_RATIOS.has(v)) return v
+  return '16:9'
+}
+
 /**
  * Gemini native image generation (Google AI Studio key, server-side only).
  * @see https://ai.google.dev/gemini-api/docs/image-generation
@@ -38,29 +60,24 @@ export async function generateSceneIllustrationDataUrl(input) {
 
   const model =
     process.env.GEMINI_IMAGE_MODEL?.trim() || 'gemini-2.5-flash-image'
-  const aspectRatio = process.env.GEMINI_IMAGE_ASPECT_RATIO?.trim() || '16:9'
-  const imageSize = process.env.GEMINI_IMAGE_SIZE?.trim() || '1K'
+  const aspectRatio = normalizeGeminiImageAspectRatio(
+    process.env.GEMINI_IMAGE_ASPECT_RATIO?.trim() || '16:9',
+  )
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
 
-  const isGemini3Image = /gemini-3.*image|image-preview/i.test(model)
-
-  /** @type {Record<string, unknown>} */
-  const imageFormat = isGemini3Image
-    ? { aspectRatio, imageSize }
-    : { aspectRatio }
-
+  // imageConfig.aspectRatio is a string ("16:9"). Do not use responseFormat.image.aspectRatio —
+  // the API maps that field to an enum and rejects string ratios (400 INVALID_ARGUMENT).
   const generationConfig = {
     responseModalities: ['TEXT', 'IMAGE'],
-    responseFormat: {
-      image: imageFormat,
+    imageConfig: {
+      aspectRatio,
     },
   }
 
   const body = {
     contents: [
       {
-        role: 'user',
         parts: [{ text: prompt.slice(0, 8000) }],
       },
     ],
@@ -105,6 +122,16 @@ export async function generateSceneIllustrationDataUrl(input) {
       return `data:${extracted.mime};base64,${extracted.b64}`
     }
 
+    const block =
+      json?.promptFeedback?.blockReason ??
+      json?.prompt_feedback?.block_reason ??
+      json?.promptFeedback?.block_reason
+    if (block) {
+      lastErr = new Error(`Gemini blocked image generation: ${block}`)
+      lastErr.code = 'GEMINI_IMAGE_BLOCKED'
+      throw lastErr
+    }
+
     lastErr = new Error('No image in Gemini response')
     lastErr.code = 'GEMINI_IMAGE_EMPTY'
     if (attempt === 0) {
@@ -117,15 +144,19 @@ export async function generateSceneIllustrationDataUrl(input) {
 
 /** @returns {{ mime: string, b64: string } | null} */
 function extractFirstImagePart(json) {
-  const parts = json?.candidates?.[0]?.content?.parts
-  if (!Array.isArray(parts)) return null
+  const candidates = json?.candidates
+  if (!Array.isArray(candidates)) return null
 
-  for (const part of parts) {
-    const inline = part.inlineData ?? part.inline_data
-    if (!inline?.data) continue
-    const mime = String(inline.mimeType ?? inline.mime_type ?? 'image/png').toLowerCase()
-    if (!mime.startsWith('image/')) continue
-    return { mime, b64: inline.data }
+  for (const cand of candidates) {
+    const parts = cand?.content?.parts
+    if (!Array.isArray(parts)) continue
+    for (const part of parts) {
+      const inline = part.inlineData ?? part.inline_data
+      if (!inline?.data) continue
+      const mime = String(inline.mimeType ?? inline.mime_type ?? 'image/png').toLowerCase()
+      if (!mime.startsWith('image/')) continue
+      return { mime, b64: inline.data }
+    }
   }
   return null
 }

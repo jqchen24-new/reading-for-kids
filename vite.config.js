@@ -1,4 +1,6 @@
-import 'dotenv/config'
+import { config as loadDotenv } from 'dotenv'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
@@ -9,6 +11,10 @@ import { synthesizeNeuralSpeech } from './api/neuralTtsRun.js'
 import { resolveNeuralTtsProvider } from './api/resolveNeuralTts.js'
 import { readRequestBody } from './api/readRequestBody.js'
 import { STUB_SCENE_RESPONSE } from './api/_stubPayload.js'
+
+/** Load `.env` next to this config — not from `process.cwd()` (often the parent folder in monorepos). */
+const storyTheaterRoot = dirname(fileURLToPath(import.meta.url))
+loadDotenv({ path: join(storyTheaterRoot, '.env') })
 
 function apiStoryPlugin() {
   return {

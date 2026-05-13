@@ -17,6 +17,7 @@ export default function App() {
   const [error, setError] = useState(null)
   const [illustrationUrl, setIllustrationUrl] = useState(null)
   const [illustrationStatus, setIllustrationStatus] = useState('idle')
+  const [illustrationDisableCode, setIllustrationDisableCode] = useState(null)
   const illustrationsOffRef = useRef(false)
 
   const {
@@ -65,6 +66,7 @@ export default function App() {
     const ac = new AbortController()
     setIllustrationStatus('loading')
     setIllustrationUrl(null)
+    setIllustrationDisableCode(null)
 
     void fetchSceneIllustration({
       narration,
@@ -78,6 +80,7 @@ export default function App() {
           illustrationsOffRef.current = true
           setIllustrationStatus('off')
           setIllustrationUrl(null)
+          setIllustrationDisableCode(r.disableCode ?? null)
           return
         }
         if (r.illustrationUrl) {
@@ -163,6 +166,7 @@ export default function App() {
     setError(null)
     setIllustrationUrl(null)
     setIllustrationStatus('idle')
+    setIllustrationDisableCode(null)
   }, [stop])
 
   const replayNarration = useCallback(() => {
@@ -210,6 +214,7 @@ export default function App() {
               loading={loading}
               illustrationUrl={illustrationUrl}
               illustrationStatus={illustrationStatus}
+              illustrationDisableCode={illustrationDisableCode}
             >
               {!currentScene.isEnding && (
                 <ChoiceCards
@@ -234,6 +239,7 @@ export default function App() {
             onPlayAgain={playAgain}
             illustrationUrl={illustrationUrl}
             illustrationStatus={illustrationStatus}
+            illustrationDisableCode={illustrationDisableCode}
           />
         )}
       </main>

@@ -27,7 +27,7 @@ export async function fetchStoryScene(payload) {
  * Optional scene art (Gemini image generation). Server returns 503 when disabled or missing key.
  * Success returns a data URL in `illustrationUrl`.
  * @param {{ narration: string, genre: string, heroName: string, signal?: AbortSignal }} params
- * @returns {Promise<{ illustrationUrl?: string, disabled?: boolean }>}
+ * @returns {Promise<{ illustrationUrl?: string, disabled?: boolean, disableCode?: string }>}
  */
 export async function fetchSceneIllustration({ narration, genre, heroName, signal }) {
   const res = await fetch('/api/illustration', {
@@ -41,7 +41,7 @@ export async function fetchSceneIllustration({ narration, genre, heroName, signa
     res.status === 503 &&
     (data.code === 'ILLUSTRATIONS_DISABLED' || data.code === 'MISSING_GEMINI_KEY')
   ) {
-    return { disabled: true }
+    return { disabled: true, disableCode: typeof data.code === 'string' ? data.code : undefined }
   }
   if (!res.ok) {
     const err = new Error(

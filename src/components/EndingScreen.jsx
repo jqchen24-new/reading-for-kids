@@ -11,10 +11,14 @@ export function EndingScreen({
   onPlayAgain,
   illustrationUrl = null,
   illustrationStatus = 'idle',
+  illustrationDisableCode = null,
 }) {
   const showIllustrationSlot =
     illustrationStatus === 'loading' ||
     (illustrationStatus === 'ready' && Boolean(illustrationUrl))
+
+  const showIllustrationHint =
+    illustrationStatus === 'error' || illustrationStatus === 'off'
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-8 px-4 py-10">
@@ -44,6 +48,29 @@ export function EndingScreen({
             )}
           </div>
         </figure>
+      )}
+
+      {showIllustrationHint && (
+        <p className="w-full rounded-xl border border-slate-600/80 bg-slate-900/60 px-4 py-3 text-center text-sm text-slate-400">
+          {illustrationStatus === 'error' ? (
+            'Could not load a scene picture this time. The story and read-aloud still work — try refreshing.'
+          ) : illustrationDisableCode === 'ILLUSTRATIONS_DISABLED' ? (
+            <>
+              Scene pictures are turned off for the server. Set{' '}
+              <code className="text-slate-300">SCENE_ILLUSTRATIONS=1</code> (or{' '}
+              <code className="text-slate-300">true</code>) in <code className="text-slate-300">story-theater/.env</code>, then{' '}
+              <strong className="text-slate-300">restart</strong> <code className="text-slate-300">npm run dev</code>.
+            </>
+          ) : illustrationDisableCode === 'MISSING_GEMINI_KEY' ? (
+            <>
+              The server does not see <code className="text-slate-300">GEMINI_API_KEY</code> for pictures. Add it to{' '}
+              <code className="text-slate-300">story-theater/.env</code>, then <strong className="text-slate-300">restart</strong>{' '}
+              <code className="text-slate-300">npm run dev</code>.
+            </>
+          ) : (
+            'Scene pictures are turned off on the server, or the picture key is missing. Check story-theater/.env and restart the dev server.'
+          )}
+        </p>
       )}
 
       <div
