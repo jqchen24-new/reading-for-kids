@@ -3,6 +3,18 @@ const GENRES = [
   { id: 'Magic', label: 'Magic' },
   { id: 'Animals', label: 'Animals' },
   { id: 'Space', label: 'Space' },
+  { id: 'Mystery', label: 'Mystery' },
+  { id: 'Comedy', label: 'Silly comedy' },
+  { id: 'Fantasy', label: 'Fantasy' },
+  { id: 'Ocean', label: 'Ocean' },
+  { id: 'Fairytale', label: 'Fairytale' },
+  { id: 'Superheroes', label: 'Superheroes' },
+  { id: 'Dinosaurs', label: 'Dinosaurs' },
+  { id: 'Sports', label: 'Sports' },
+  { id: 'Robots', label: 'Robots' },
+  { id: 'Woodland', label: 'Woodland' },
+  { id: 'Pirates', label: 'Pirates' },
+  { id: 'TimeTravel', label: 'Time travel' },
 ]
 
 export function SetupScreen({
@@ -15,7 +27,7 @@ export function SetupScreen({
   error,
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-lg flex-col gap-8 px-4 py-8">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8">
       <header className="text-center">
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-amber-300/90">
           Interactive Story Theater
@@ -30,7 +42,7 @@ export function SetupScreen({
 
       <fieldset className="space-y-3">
         <legend className="text-lg font-semibold text-white">Genre</legend>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {GENRES.map(({ id, label }) => {
             const selected = genre === id
             return (
