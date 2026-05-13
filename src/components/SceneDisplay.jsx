@@ -9,6 +9,7 @@ export function SceneDisplay({
   onNarratorReplay,
   onNarratorTogglePause,
   onNarratorStop,
+  onGoHome,
   loading,
   illustrationUrl = null,
   illustrationStatus = 'idle',
@@ -24,6 +25,16 @@ export function SceneDisplay({
 
   return (
     <div className="flex w-full max-w-2xl flex-col gap-6 px-4 py-6">
+      <div className="flex w-full justify-start">
+        <button
+          type="button"
+          onClick={onGoHome}
+          className="rounded-xl border border-slate-600 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-amber-400/60 hover:bg-slate-800/80 hover:text-amber-100"
+        >
+          ← Home
+        </button>
+      </div>
+
       {showIllustrationSlot && (
         <figure className="overflow-hidden rounded-2xl border border-slate-700/90 bg-slate-900 shadow-lg">
           <div className="relative aspect-[16/9] w-full bg-slate-950">

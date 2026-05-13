@@ -157,7 +157,7 @@ export default function App() {
     [choiceHistory, currentScene, genre, loading, resolvedHero, stop, primePlaybackFromGesture],
   )
 
-  const playAgain = useCallback(() => {
+  const goHome = useCallback(() => {
     illustrationsOffRef.current = false
     stop()
     setPhase('setup')
@@ -168,6 +168,8 @@ export default function App() {
     setIllustrationStatus('idle')
     setIllustrationDisableCode(null)
   }, [stop])
+
+  const playAgain = goHome
 
   const replayNarration = useCallback(() => {
     primePlaybackFromGesture()
@@ -211,6 +213,7 @@ export default function App() {
               onNarratorReplay={replayNarration}
               onNarratorTogglePause={togglePause}
               onNarratorStop={stop}
+              onGoHome={goHome}
               loading={loading}
               illustrationUrl={illustrationUrl}
               illustrationStatus={illustrationStatus}
@@ -236,6 +239,7 @@ export default function App() {
             onNarratorReplay={replayNarration}
             onNarratorTogglePause={togglePause}
             onNarratorStop={stop}
+            onGoHome={goHome}
             onPlayAgain={playAgain}
             illustrationUrl={illustrationUrl}
             illustrationStatus={illustrationStatus}
