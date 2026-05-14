@@ -1,9 +1,11 @@
+import { NarrationText } from './NarrationText.jsx'
 import { NarratorButton } from './NarratorButton.jsx'
 
 export function SceneDisplay({
   narration,
   sceneLabel,
   narratorStatus,
+  narratorActiveSentenceIndex = -1,
   speechSupported,
   iosSpeechGestureOnly,
   onNarratorReplay,
@@ -151,11 +153,11 @@ export function SceneDisplay({
         {!narration?.trim() && loading ? (
           <p className="text-center text-lg text-slate-400">Writing the next scene…</p>
         ) : (
-          <p
-            className={`text-left text-xl leading-relaxed text-slate-100 sm:text-2xl sm:leading-relaxed ${loading && narration?.trim() ? 'opacity-70' : ''}`}
-          >
-            {narration}
-          </p>
+          <NarrationText
+            narration={narration}
+            activeSentenceIndex={narratorActiveSentenceIndex}
+            dimmed={Boolean(loading && narration?.trim())}
+          />
         )}
       </div>
 

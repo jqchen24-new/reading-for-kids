@@ -54,6 +54,7 @@ export default function App() {
     status: narratorStatus,
     supported: speechSupported,
     iosSpeechGestureOnly,
+    activeSentenceIndex: narratorActiveSentenceIndex,
   } = useNarrator()
 
   const resolvedHero = useMemo(
@@ -346,6 +347,7 @@ export default function App() {
               narration={currentScene.narration}
               sceneLabel={`Scene ${choiceHistory.length + 1} of 6`}
               narratorStatus={narratorStatus}
+              narratorActiveSentenceIndex={narratorActiveSentenceIndex}
               speechSupported={speechSupported}
               iosSpeechGestureOnly={iosSpeechGestureOnly}
               onNarratorReplay={replayNarration}
@@ -377,6 +379,7 @@ export default function App() {
           <EndingScreen
             narration={currentScene.narration}
             narratorStatus={narratorStatus}
+            narratorActiveSentenceIndex={narratorActiveSentenceIndex}
             speechSupported={speechSupported}
             iosSpeechGestureOnly={iosSpeechGestureOnly}
             onNarratorReplay={replayNarration}

@@ -1,8 +1,10 @@
+import { NarrationText } from './NarrationText.jsx'
 import { NarratorButton } from './NarratorButton.jsx'
 
 export function EndingScreen({
   narration,
   narratorStatus,
+  narratorActiveSentenceIndex = -1,
   speechSupported,
   iosSpeechGestureOnly,
   onNarratorReplay,
@@ -111,11 +113,14 @@ export function EndingScreen({
       )}
 
       <div
-        className="w-full max-h-[min(45vh,380px)] overflow-y-auto rounded-2xl border border-slate-600 bg-slate-900/80 p-6 text-left text-xl leading-relaxed text-slate-100 sm:text-2xl"
+        className="w-full max-h-[min(45vh,380px)] overflow-y-auto rounded-2xl border border-slate-600 bg-slate-900/80 p-6"
         role="region"
         aria-live="polite"
       >
-        {narration}
+        <NarrationText
+          narration={narration}
+          activeSentenceIndex={narratorActiveSentenceIndex}
+        />
       </div>
 
       {!speechSupported && (

@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { isIOSLikeDevice } from '../lib/platform.js'
+import {
+  sentenceIndexForCharPosition,
+  sentenceIndexForRatio,
+  splitNarrationSentences,
+} from '../lib/narrationSentences.js'
 import { pickVoiceForNarration } from '../lib/pickSpeechVoice.js'
 import { getTtsNeuralCache, setTtsNeuralCache } from '../lib/ttsNeuralCache.js'
 
@@ -48,6 +53,7 @@ async function fetchNeuralTtsWithRetry(text, signal) {
  */
 export function useNarrator() {
   const [status, setStatus] = useState('idle')
+  const [activeSentenceIndex, setActiveSentenceIndex] = useState(-1)
   const [supported] = useState(
     () =>
       typeof window !== 'undefined' &&
@@ -64,6 +70,29 @@ export function useNarrator() {
   const prefetchedRef = useRef(null)
   const prefetchAbortRef = useRef(null)
   const speakGenRef = useRef(0)
+  /** Sentence spans for whichever text is currently being read aloud. */
+  const sentencesRef = useRef(
+    /** @type {Array<{ text: string, start: number, end: number }>} */ ([]),
+  )
+  /** rAF id for Web Audio playback tracking. */
+  const rafIdRef = useRef(0)
+
+  const cancelSentenceTracking = useCallback(() => {
+    if (rafIdRef.current && typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(rafIdRef.current)
+    }
+    rafIdRef.current = 0
+  }, [])
+
+  const updateActiveFromCharPos = useCallback((pos) => {
+    const idx = sentenceIndexForCharPosition(sentencesRef.current, pos)
+    setActiveSentenceIndex((prev) => (prev === idx ? prev : idx))
+  }, [])
+
+  const updateActiveFromRatio = useCallback((ratio) => {
+    const idx = sentenceIndexForRatio(sentencesRef.current, ratio)
+    setActiveSentenceIndex((prev) => (prev === idx ? prev : idx))
+  }, [])
 
   const stopNeuralWebAudio = useCallback(() => {
     const src = bufferSourceRef.current
@@ -78,6 +107,7 @@ export function useNarrator() {
   }, [])
 
   const cleanupAudio = useCallback(() => {
+    cancelSentenceTracking()
     abortRef.current?.abort()
     abortRef.current = null
     stopNeuralWebAudio()
@@ -85,13 +115,16 @@ export function useNarrator() {
       audioRef.current.pause()
       audioRef.current.removeAttribute('src')
       audioRef.current.load()
+      audioRef.current.ontimeupdate = null
+      audioRef.current.onended = null
+      audioRef.current.onerror = null
       audioRef.current = null
     }
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current)
       objectUrlRef.current = null
     }
-  }, [stopNeuralWebAudio])
+  }, [cancelSentenceTracking, stopNeuralWebAudio])
 
   /** Call synchronously from pointer/tap handlers so neural audio can play after async fetch. */
   const primePlaybackFromGesture = useCallback(() => {
@@ -121,6 +154,7 @@ export function useNarrator() {
       window.speechSynthesis.cancel()
     }
     setStatus('idle')
+    setActiveSentenceIndex(-1)
   }, [cleanupAudio])
 
   /** Warm `/api/tts` while the user reads (iOS has no auto-speak). */
@@ -179,6 +213,8 @@ export function useNarrator() {
         window.speechSynthesis.cancel()
       }
 
+      sentencesRef.current = splitNarrationSentences(t)
+      setActiveSentenceIndex(-1)
       setStatus('loading')
 
       const tryPlayNeuralAb = async (ab, mimeFromHeader) => {
@@ -208,10 +244,26 @@ export function useNarrator() {
               const sourceGen = myGen
               source.onended = () => {
                 bufferSourceRef.current = null
-                if (speakGenRef.current === sourceGen) setStatus('idle')
+                cancelSentenceTracking()
+                if (speakGenRef.current === sourceGen) {
+                  setStatus('idle')
+                  setActiveSentenceIndex(-1)
+                }
               }
               setStatus('playing')
               source.start(0)
+              const ctxStart = ctx.currentTime
+              const duration = audioBuffer.duration
+              cancelSentenceTracking()
+              const tick = () => {
+                if (speakGenRef.current !== sourceGen) return
+                if (bufferSourceRef.current !== source) return
+                if (ctx.state === 'running' && Number.isFinite(duration) && duration > 0) {
+                  updateActiveFromRatio((ctx.currentTime - ctxStart) / duration)
+                }
+                rafIdRef.current = requestAnimationFrame(tick)
+              }
+              rafIdRef.current = requestAnimationFrame(tick)
               return true
             } catch {
               stopNeuralWebAudio()
@@ -240,11 +292,23 @@ export function useNarrator() {
         const audioGen = myGen
         audio.onended = () => {
           cleanupAudio()
-          if (speakGenRef.current === audioGen) setStatus('idle')
+          if (speakGenRef.current === audioGen) {
+            setStatus('idle')
+            setActiveSentenceIndex(-1)
+          }
         }
         audio.onerror = () => {
           cleanupAudio()
-          if (speakGenRef.current === audioGen) setStatus('idle')
+          if (speakGenRef.current === audioGen) {
+            setStatus('idle')
+            setActiveSentenceIndex(-1)
+          }
+        }
+        audio.ontimeupdate = () => {
+          if (speakGenRef.current !== audioGen) return
+          const dur = audio.duration
+          if (!Number.isFinite(dur) || dur <= 0) return
+          updateActiveFromRatio(audio.currentTime / dur)
         }
 
         try {
@@ -326,11 +390,29 @@ export function useNarrator() {
           u.voice = voice
         }
 
+        u.onboundary = (e) => {
+          if (speakGenRef.current !== myGen) return
+          if (typeof e.charIndex === 'number') {
+            updateActiveFromCharPos(e.charIndex)
+          }
+        }
+        u.onstart = () => {
+          if (speakGenRef.current !== myGen) return
+          if (sentencesRef.current.length > 0) {
+            updateActiveFromCharPos(0)
+          }
+        }
         u.onend = () => {
-          if (speakGenRef.current === myGen) setStatus('idle')
+          if (speakGenRef.current === myGen) {
+            setStatus('idle')
+            setActiveSentenceIndex(-1)
+          }
         }
         u.onerror = () => {
-          if (speakGenRef.current === myGen) setStatus('idle')
+          if (speakGenRef.current === myGen) {
+            setStatus('idle')
+            setActiveSentenceIndex(-1)
+          }
         }
 
         setStatus('playing')
@@ -351,7 +433,14 @@ export function useNarrator() {
         queueMicrotask(runSpeak)
       }
     },
-    [cleanupAudio, iosSpeechGestureOnly, stopNeuralWebAudio],
+    [
+      cancelSentenceTracking,
+      cleanupAudio,
+      iosSpeechGestureOnly,
+      stopNeuralWebAudio,
+      updateActiveFromCharPos,
+      updateActiveFromRatio,
+    ],
   )
 
   const togglePause = useCallback(() => {
@@ -426,5 +515,6 @@ export function useNarrator() {
     status,
     supported,
     iosSpeechGestureOnly,
+    activeSentenceIndex,
   }
 }
