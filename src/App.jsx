@@ -21,6 +21,9 @@ export default function App() {
   const [pageIndex, setPageIndex] = useState(0)
   const [genre, setGenre] = useState('Adventure')
   const [heroName, setHeroName] = useState('')
+  const [heroGender, setHeroGender] = useState(
+    /** @type {'girl' | 'boy' | 'neutral'} */ ('neutral'),
+  )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [illustrationUrl, setIllustrationUrl] = useState(null)
@@ -114,10 +117,10 @@ export default function App() {
       return
     }
 
-    const pathKey = choiceHistoryKey
-    const parts = pathKey ? pathKey.split('\u0001') : []
-    const sceneNumber = parts.length + 1
-    const lastChoice = parts.length > 0 ? parts[parts.length - 1].trim() : ''
+    const pathKey = `${heroGender}\u0001${choiceHistoryKey}`
+    const choiceParts = choiceHistoryKey ? choiceHistoryKey.split('\u0001') : []
+    const sceneNumber = choiceParts.length + 1
+    const lastChoice = choiceParts.length > 0 ? choiceParts[choiceParts.length - 1].trim() : ''
 
     const cached = illustrationByPathKeyRef.current[pathKey]
     if (cached) {
@@ -139,6 +142,7 @@ export default function App() {
         narration,
         genre,
         heroName: resolvedHero,
+        heroGender,
         lastChoice,
         sceneNumber,
         establishedIllustrationCast: illustrationCastMap,
@@ -175,6 +179,7 @@ export default function App() {
     phase,
     genre,
     resolvedHero,
+    heroGender,
     illustrationCastMap,
   ])
 
@@ -190,6 +195,7 @@ export default function App() {
       const scene = await fetchStoryScene({
         genre,
         heroName: resolvedHero,
+        heroGender,
         sceneNumber: 1,
         choiceHistory: [],
         establishedIllustrationCast: {},
@@ -207,7 +213,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [genre, resolvedHero, stop, primePlaybackFromGesture])
+  }, [genre, heroGender, resolvedHero, stop, primePlaybackFromGesture])
 
   const choose = useCallback(
     async (label) => {
@@ -235,6 +241,7 @@ export default function App() {
         const scene = await fetchStoryScene({
           genre,
           heroName: resolvedHero,
+          heroGender,
           sceneNumber: nextHistory.length + 1,
           choiceHistory: nextHistory,
           establishedIllustrationCast: castBase,
@@ -255,7 +262,7 @@ export default function App() {
         setLoading(false)
       }
     },
-    [genre, heroKey, loading, resolvedHero, stop, primePlaybackFromGesture],
+    [genre, heroGender, heroKey, loading, resolvedHero, stop, primePlaybackFromGesture],
   )
 
   const goStoryBack = useCallback(() => {
@@ -302,6 +309,8 @@ export default function App() {
             onGenreChange={setGenre}
             heroName={heroName}
             onHeroNameChange={setHeroName}
+            heroGender={heroGender}
+            onHeroGenderChange={setHeroGender}
             onStart={startStory}
             loading={loading}
             error={error}

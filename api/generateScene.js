@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { parseHeroGender, heroGenderNarrationRule } from './heroGender.js'
 import { parseEstablishedIllustrationCast } from './illustrationCastPrompt.js'
 import { parseSceneFromModelText } from './parseSceneJson.js'
 
@@ -10,7 +11,9 @@ Characters who already met in prior scenes already know each other. Do not have 
 
 This is a branching interactive story: after scene 1, every new scene MUST follow the reader's latest choice and show clear consequences before adding new twists. Never ignore, skip, or contradict the branch they just picked.
 
-When you output "illustrationCast", each supporting character's "look" sentence is the official design for them for the whole story: keep it stable across scenes. If the user lists ESTABLISHED SUPPORTING CAST lines, reuse those exact look strings verbatim for the same names.
+When you output "illustrationCast", each supporting character's "look" sentence is the official design for them for the whole story: keep it stable across scenes. If the user lists ESTABLISHED SUPPORTING CAST lines, reuse those exact look strings verbatim for the same names. Each look should name a repeatable outfit (garments + colors) so illustrations stay consistent.
+
+The reader may set hero gender (girl, boy, or neutral) in the story setup — honor that with matching pronouns for the hero for the whole run.
 
 Always respond in valid JSON only — no extra text, no markdown, no code fences.`
 
@@ -38,7 +41,9 @@ export function normalizeStoryPayload(body) {
         .slice(0, 5)
     : []
 
-  return { genre, heroName, sceneNumber, choiceHistory, establishedIllustrationCast, priorSceneNarrations }
+  const heroGender = parseHeroGender(b.heroGender)
+
+  return { genre, heroName, sceneNumber, choiceHistory, establishedIllustrationCast, priorSceneNarrations, heroGender }
 }
 
 function buildUserPrompt({
@@ -48,6 +53,7 @@ function buildUserPrompt({
   choiceHistory,
   establishedIllustrationCast,
   priorSceneNarrations,
+  heroGender,
 }) {
   const historyLines =
     choiceHistory.length === 0
@@ -97,6 +103,7 @@ function buildUserPrompt({
   return `Story setup:
 - Genre: ${genre}
 - Hero name: ${heroName}
+- ${heroGenderNarrationRule(heroGender)}
 - Target age: 7–9
 - Scene: ${sceneNumber} of 6
 - Choices made so far (in order, each is what the reader tapped after the previous scene):
@@ -118,7 +125,7 @@ Respond in this exact JSON shape (keys required; include "illustrationCast" as a
   "choices": ["Choice A", "Choice B"],
   "isEnding": false,
   "illustrationCast": [
-    { "name": "SupportingName", "look": "One vivid sentence: species/build, hair or fur, outfit colors, one memorable detail. Stable for the whole story." }
+    { "name": "SupportingName", "look": "One sentence: species/build, hair or fur, a specific outfit with garment names and colors, one memorable prop. Repeat the same outfit wording when they return." }
   ]
 }
 
@@ -127,7 +134,7 @@ Rules for "illustrationCast":
 - At most 4 objects. Do NOT include the hero "${heroName}" (the app locks the hero separately).
 - List named supporting characters who appear in THIS scene's narration (friends, pets, robots, mentors, rivals, etc.).
 - If a name appears in ESTABLISHED SUPPORTING CAST above, reuse that exact "look" string (same spelling and punctuation).
-- For brand-new names, write a new vivid "look" sentence you can keep consistent if they return later.
+- For brand-new names, write a new vivid "look" sentence that names stable clothes (shirt, pants, dress, vest, etc.) and colors so the same outfit can be redrawn in later scenes. Do not change their costume later unless the plot truly replaces it (then update once and keep the new string).
 
 If this is the final scene, use "choices": [] and "isEnding": true (illustrationCast may still list who appears in the ending).`
 }

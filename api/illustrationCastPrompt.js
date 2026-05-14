@@ -14,7 +14,7 @@ export function parseEstablishedIllustrationCast(raw) {
   for (const [k0, v0] of Object.entries(raw)) {
     if (n >= 16) break
     const k = typeof k0 === 'string' ? k0.trim().slice(0, 40).toLowerCase() : ''
-    const v = typeof v0 === 'string' ? v0.trim().slice(0, 380) : ''
+    const v = typeof v0 === 'string' ? v0.trim().slice(0, 450) : ''
     if (!k || !v) continue
     if (!out[k]) out[k] = v
     n++
@@ -30,7 +30,10 @@ export function parseEstablishedIllustrationCast(raw) {
 export function formatEstablishedSupportingCast(map, heroLower, maxChars = 2400) {
   const entries = Object.entries(map).filter(([k]) => k && k !== heroLower)
   entries.sort(([a], [b]) => a.localeCompare(b))
-  const lines = entries.map(([k, v]) => `- ${k}: ${v}`)
+  const lines = entries.map(
+    ([k, v]) =>
+      `- ${k}: ${v} (keep this exact face, species, body, hair/fur, and core outfit — same garment shapes and colors in every image; only pose, expression, and small props may change)`,
+  )
   let text = lines.join('\n')
   if (text.length > maxChars) {
     text = text.slice(0, maxChars) + '\n… (truncated)'

@@ -12,7 +12,7 @@ export function mergeIllustrationCastFromScene(map, scene, heroKey) {
   for (const row of arr) {
     if (!row || typeof row !== 'object') continue
     const name = typeof row.name === 'string' ? row.name.trim().slice(0, 40) : ''
-    const look = typeof row.look === 'string' ? row.look.trim().slice(0, 400) : ''
+    const look = typeof row.look === 'string' ? row.look.trim().slice(0, 500) : ''
     if (!name || !look) continue
     const key = name.toLowerCase()
     if (key === heroKey) continue

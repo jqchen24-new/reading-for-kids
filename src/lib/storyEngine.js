@@ -26,13 +26,14 @@ export async function fetchStoryScene(payload) {
 /**
  * Optional scene art (Gemini image generation). Server returns 503 when disabled or missing key.
  * Success returns a data URL in `illustrationUrl`.
- * @param {{ narration: string, genre: string, heroName: string, lastChoice?: string, sceneNumber?: number, establishedIllustrationCast?: Record<string, string>, signal?: AbortSignal }} params
+ * @param {{ narration: string, genre: string, heroName: string, heroGender?: string, lastChoice?: string, sceneNumber?: number, establishedIllustrationCast?: Record<string, string>, signal?: AbortSignal }} params
  * @returns {Promise<{ illustrationUrl?: string, disabled?: boolean, disableCode?: string }>}
  */
 export async function fetchSceneIllustration({
   narration,
   genre,
   heroName,
+  heroGender,
   lastChoice,
   sceneNumber,
   establishedIllustrationCast,
@@ -45,6 +46,10 @@ export async function fetchSceneIllustration({
       narration,
       genre,
       heroName,
+      heroGender:
+        heroGender === 'girl' || heroGender === 'boy' || heroGender === 'neutral'
+          ? heroGender
+          : 'neutral',
       ...(lastChoice?.trim() ? { lastChoice: lastChoice.trim() } : {}),
       ...(typeof sceneNumber === 'number' && Number.isFinite(sceneNumber)
         ? { sceneNumber }

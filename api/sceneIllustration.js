@@ -27,7 +27,7 @@ function normalizeGeminiImageAspectRatio(raw) {
 /**
  * Gemini native image generation (Google AI Studio key, server-side only).
  * @see https://ai.google.dev/gemini-api/docs/image-generation
- * @param {{ narration: string, genre?: string, heroName?: string, lastChoice?: string, sceneNumber?: number, establishedIllustrationCast?: Record<string, string> }} input
+ * @param {{ narration: string, genre?: string, heroName?: string, heroGender?: string, lastChoice?: string, sceneNumber?: number, establishedIllustrationCast?: Record<string, string> }} input
  * @returns {Promise<string>} Data URL (e.g. data:image/png;base64,...) for use as img src
  */
 export async function generateSceneIllustrationDataUrl(input) {
@@ -51,13 +51,13 @@ export async function generateSceneIllustrationDataUrl(input) {
       ? input.heroName.trim().slice(0, 40)
       : 'the hero'
 
-  const visualLock = buildHeroVisualLock(hero, genre)
+  const visualLock = buildHeroVisualLock(hero, genre, input.heroGender)
 
   const heroLo = hero.trim().toLowerCase()
   const supportMap = parseEstablishedIllustrationCast(input.establishedIllustrationCast)
   const supportLock =
     Object.keys(supportMap).length > 0
-      ? `SUPPORTING CAST LOCK (series canon — reuse exactly; do not redesign faces, species, hair or fur, skin, or outfit colors for these names; only pose, expression, and placement may change. If narration conflicts, keep the lock and adjust props only):\n${formatEstablishedSupportingCast(supportMap, heroLo)}`
+      ? `SUPPORTING CAST LOCK (series canon — reuse exactly; do not redesign faces, species, body shape, hair or fur, skin, or the core garments and colors listed; only pose, expression, and placement may change. If narration mentions different clothes, keep the lock and use removable props only):\n${formatEstablishedSupportingCast(supportMap, heroLo)}`
       : ''
 
   const lastChoice =
@@ -73,7 +73,8 @@ export async function generateSceneIllustrationDataUrl(input) {
   const prompt = [
     visualLock.lockBlock,
     supportLock,
-    "The narration below describes ONLY what is happening (action, setting, props). Do not let it change the protagonist's locked face, hair length, skin tone, or base outfit colors. If the text mentions different clothes or armor, keep the locked outfit and add removable props (helmet held, cape draped) instead of a full wardrobe change.",
+    'OUTFIT AND CAST INTEGRITY: For the hero and every name in SUPPORTING CAST LOCK, only the LOCK text defines their clothes, hair, and body. SCENE ACTION describes what happens — it must NOT replace locked outfits, haircuts, species, or gender presentation. If the narration mentions armor, uniforms, disguises, or costume changes, show those as removable props (held helmet, folded cloak) or background elements, not as a redesign of locked characters.',
+    "The narration below describes ONLY what is happening (action, setting, props). Do not let it change the protagonist's locked face, hair length, skin tone, gender presentation, or base outfit colors.",
     "Children's picture-book illustration for ages 7–9.",
     'Warm colors, friendly and imaginative, single clear moment, painterly or soft digital style.',
     'Do not include readable text, letters, captions, logos, or watermarks in the image.',

@@ -76,7 +76,7 @@ function normalizeIllustrationCast(raw) {
     if (out.length >= 5) break
     if (!row || typeof row !== 'object') continue
     const name = typeof row.name === 'string' ? row.name.trim().slice(0, 40) : ''
-    const look = typeof row.look === 'string' ? row.look.trim().slice(0, 400) : ''
+    const look = typeof row.look === 'string' ? row.look.trim().slice(0, 500) : ''
     if (!name || !look) continue
     const key = name.toLowerCase()
     if (seen.has(key)) continue
