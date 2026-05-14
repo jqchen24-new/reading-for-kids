@@ -102,13 +102,19 @@ export async function generateSceneIllustrationDataUrl(input) {
     .filter(Boolean)
     .join(' ')
 
-  const model =
+  const configuredModel =
     process.env.GEMINI_IMAGE_MODEL?.trim() || 'gemini-3.1-flash-image-preview'
+  /** Widely available if preview / newer IDs are not enabled on the key yet. */
+  const fallbackImageModel = 'gemini-2.5-flash-image'
+  /** @type {string[]} */
+  const modelChain = []
+  for (const m of [configuredModel, fallbackImageModel]) {
+    if (m && !modelChain.includes(m)) modelChain.push(m)
+  }
+
   const aspectRatio = normalizeGeminiImageAspectRatio(
     process.env.GEMINI_IMAGE_ASPECT_RATIO?.trim() || '16:9',
   )
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
 
   // imageConfig.aspectRatio is a string ("16:9"). Do not use responseFormat.image.aspectRatio —
   // the API maps that field to an enum and rejects string ratios (400 INVALID_ARGUMENT).
@@ -132,18 +138,63 @@ export async function generateSceneIllustrationDataUrl(input) {
       ]
     : [{ text: promptText.slice(0, textMax) }]
 
-  try {
-    return await geminiImageFromParts(partsWithRef, apiKey, url, generationConfig)
-  } catch (e) {
-    if (refParsed && e && typeof e === 'object' && 'status' in e && e.status === 400) {
-      console.warn(
-        '[sceneIllustration] multimodal reference rejected; retrying without reference image.',
-        e instanceof Error ? e.message : e,
-      )
-      return await geminiImageFromParts([{ text: promptText.slice(0, 8000) }], apiKey, url, generationConfig)
+  /**
+   * @param {string} model
+   */
+  async function generateForModel(model) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
+    try {
+      return await geminiImageFromParts(partsWithRef, apiKey, url, generationConfig)
+    } catch (e) {
+      if (refParsed && e && typeof e === 'object' && 'status' in e && e.status === 400) {
+        console.warn(
+          '[sceneIllustration] multimodal reference rejected; retrying without reference image.',
+          e instanceof Error ? e.message : e,
+        )
+        return await geminiImageFromParts(
+          [{ text: promptText.slice(0, 8000) }],
+          apiKey,
+          url,
+          generationConfig,
+        )
+      }
+      throw e
     }
-    throw e
   }
+
+  let lastErr = null
+  for (let i = 0; i < modelChain.length; i++) {
+    const model = modelChain[i]
+    try {
+      return await generateForModel(model)
+    } catch (e) {
+      lastErr = e
+      const next = modelChain[i + 1]
+      if (next && imageModelFailureWarrantsFallback(e)) {
+        console.warn(
+          `[sceneIllustration] image model "${model}" unavailable or rejected; retrying with "${next}".`,
+          e instanceof Error ? e.message.slice(0, 280) : e,
+        )
+        continue
+      }
+      throw e
+    }
+  }
+
+  throw lastErr ?? new Error('Gemini image generation failed')
+}
+
+/**
+ * When the primary model ID is wrong for the API key, Google often returns 404 or 400 NOT_FOUND.
+ * @param {unknown} err
+ */
+function imageModelFailureWarrantsFallback(err) {
+  if (!err || typeof err !== 'object' || !('status' in err)) return false
+  const status = /** @type {{ status?: number }} */ (err).status
+  if (status === 404 || status === 403) return true
+  if (status !== 400) return false
+  const msg = err instanceof Error ? err.message : String(err)
+  return /not\s+found|NOT_FOUND|does not exist|invalid.*model|is not supported|ListModels/i.test(msg)
 }
 
 /**

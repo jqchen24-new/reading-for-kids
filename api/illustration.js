@@ -50,7 +50,8 @@ export default async function handler(req, res) {
 
   let raw = ''
   try {
-    raw = await readRequestBody(req)
+    // Scene 2+ sends heroReferenceImage (data URL); base64 art can exceed 1 MB easily.
+    raw = await readRequestBody(req, 15_000_000)
   } catch {
     sendJson(res, 400, { error: 'Could not read request body' })
     return
