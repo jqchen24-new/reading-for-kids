@@ -3,6 +3,8 @@ import { parseSceneFromModelText } from './parseSceneJson.js'
 
 const SYSTEM_PROMPT = `You are a children's story narrator for ages 7–9. You write in a warm, exciting, age-appropriate voice. Each scene should be 3–5 sentences. Keep peril mild and safe; no graphic violence, no romance, no profanity. The named hero is always the protagonist.
 
+This is a branching interactive story: after scene 1, every new scene MUST follow the reader's latest choice and show clear consequences before adding new twists. Never ignore, skip, or contradict the branch they just picked.
+
 Always respond in valid JSON only — no extra text, no markdown, no code fences.`
 
 /** @param {unknown} body */
@@ -29,6 +31,20 @@ function buildUserPrompt({ genre, heroName, sceneNumber, choiceHistory }) {
       ? '(none yet)'
       : choiceHistory.map((c, i) => `${i + 1}. ${c}`).join('\n')
 
+  const lastChoice =
+    choiceHistory.length > 0 ? choiceHistory[choiceHistory.length - 1].trim() : ''
+
+  const branchInstructions =
+    sceneNumber <= 1
+      ? `Scene 1: start a fresh opening. There are no prior reader choices yet.`
+      : lastChoice
+        ? `BRANCHING (critical): The reader's LATEST choice, which leads directly into THIS scene, was:\n"${lastChoice}"\n\n` +
+          `Your narration MUST:\n` +
+          `- Open by showing what happens because they picked that (location, action, discovery, or dialogue tied to it).\n` +
+          `- Stay consistent with all earlier choices listed above, especially this last one.\n` +
+          `- Not reset the plot, not "meanwhile elsewhere," and not follow a different branch than "${lastChoice}".`
+        : `Continue the story coherently from the prior scene even though choice text is missing from history.`
+
   const endingRules =
     sceneNumber >= 6
       ? `This is the FINAL scene (scene 6 of 6). Write a satisfying conclusion that wraps up the adventure. Set "isEnding" to true and "choices" to an empty array []. Do not offer new branches.`
@@ -39,8 +55,10 @@ function buildUserPrompt({ genre, heroName, sceneNumber, choiceHistory }) {
 - Hero name: ${heroName}
 - Target age: 7–9
 - Scene: ${sceneNumber} of 6
-- Choices made so far (in order):
+- Choices made so far (in order, each is what the reader tapped after the previous scene):
 ${historyLines}
+
+${branchInstructions}
 
 Write the next scene and follow the ending rules below.
 

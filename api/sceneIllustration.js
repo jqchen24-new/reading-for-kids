@@ -1,4 +1,5 @@
 import { readGeminiApiKeyFromEnv } from './geminiApiKey.js'
+import { buildHeroVisualAnchor } from './heroVisualAnchor.js'
 
 /** Ratios supported by ImageConfig (string), per Generative Language API. */
 const GEMINI_IMAGE_ASPECT_RATIOS = new Set([
@@ -25,7 +26,7 @@ function normalizeGeminiImageAspectRatio(raw) {
 /**
  * Gemini native image generation (Google AI Studio key, server-side only).
  * @see https://ai.google.dev/gemini-api/docs/image-generation
- * @param {{ narration: string, genre?: string, heroName?: string }} input
+ * @param {{ narration: string, genre?: string, heroName?: string, lastChoice?: string, sceneNumber?: number }} input
  * @returns {Promise<string>} Data URL (e.g. data:image/png;base64,...) for use as img src
  */
 export async function generateSceneIllustrationDataUrl(input) {
@@ -49,14 +50,30 @@ export async function generateSceneIllustrationDataUrl(input) {
       ? input.heroName.trim().slice(0, 40)
       : 'the hero'
 
+  const visualAnchor = buildHeroVisualAnchor(hero, genre)
+
+  const lastChoice =
+    typeof input.lastChoice === 'string' && input.lastChoice.trim()
+      ? input.lastChoice.trim().slice(0, 200)
+      : ''
+  const sceneNum = Number.isFinite(input.sceneNumber) ? Math.min(6, Math.max(1, input.sceneNumber)) : 1
+  const branchLine =
+    lastChoice && sceneNum > 1
+      ? `This moment follows the reader's choice: "${lastChoice}". Show that situation visually (no text in the image).`
+      : ''
+
   const prompt = [
     "Children's picture-book illustration for ages 7–9.",
     'Warm colors, friendly and imaginative, single clear moment, painterly or soft digital style.',
     'Do not include readable text, letters, captions, logos, or watermarks in the image.',
     'Safe and mild — no gore, weapons, or scary horror imagery.',
+    visualAnchor,
     `Genre: ${genre}. Main character: ${hero}.`,
+    branchLine,
     `Scene to depict: ${narration}`,
-  ].join(' ')
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   const model =
     process.env.GEMINI_IMAGE_MODEL?.trim() || 'gemini-2.5-flash-image'

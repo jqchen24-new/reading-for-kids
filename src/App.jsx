@@ -68,10 +68,16 @@ export default function App() {
     setIllustrationUrl(null)
     setIllustrationDisableCode(null)
 
+    const sceneNumber = choiceHistory.length + 1
+    const lastChoice =
+      choiceHistory.length > 0 ? choiceHistory[choiceHistory.length - 1].trim() : ''
+
     void fetchSceneIllustration({
       narration,
       genre,
       heroName: resolvedHero,
+      lastChoice,
+      sceneNumber,
       signal: ac.signal,
     })
       .then((r) => {
@@ -97,7 +103,7 @@ export default function App() {
       })
 
     return () => ac.abort()
-  }, [currentScene?.narration, phase, genre, resolvedHero])
+  }, [currentScene?.narration, phase, genre, resolvedHero, choiceHistory])
 
   const startStory = useCallback(async () => {
     primePlaybackFromGesture()

@@ -26,14 +26,29 @@ export async function fetchStoryScene(payload) {
 /**
  * Optional scene art (Gemini image generation). Server returns 503 when disabled or missing key.
  * Success returns a data URL in `illustrationUrl`.
- * @param {{ narration: string, genre: string, heroName: string, signal?: AbortSignal }} params
+ * @param {{ narration: string, genre: string, heroName: string, lastChoice?: string, sceneNumber?: number, signal?: AbortSignal }} params
  * @returns {Promise<{ illustrationUrl?: string, disabled?: boolean, disableCode?: string }>}
  */
-export async function fetchSceneIllustration({ narration, genre, heroName, signal }) {
+export async function fetchSceneIllustration({
+  narration,
+  genre,
+  heroName,
+  lastChoice,
+  sceneNumber,
+  signal,
+}) {
   const res = await fetch('/api/illustration', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ narration, genre, heroName }),
+    body: JSON.stringify({
+      narration,
+      genre,
+      heroName,
+      ...(lastChoice?.trim() ? { lastChoice: lastChoice.trim() } : {}),
+      ...(typeof sceneNumber === 'number' && Number.isFinite(sceneNumber)
+        ? { sceneNumber }
+        : {}),
+    }),
     signal,
   })
   const data = await res.json().catch(() => ({}))
