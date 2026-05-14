@@ -45,7 +45,7 @@ export async function synthesizeNeuralSpeech(text) {
     try {
       const hasGemini = Boolean(readGeminiApiKeyFromEnv())
       const parsed = Number.parseInt(process.env.OPENAI_TTS_FAILFAST_MS ?? '', 10)
-      const failFastMs = Number.isFinite(parsed) && parsed >= 800 ? parsed : 4500
+      const failFastMs = Number.isFinite(parsed) && parsed >= 800 ? parsed : 14000
       const buffer =
         ttsProviderIsAutoOrUnset() && hasGemini
           ? await withTimeout(failFastMs, synthesizeSpeechToMp3(text))

@@ -1,6 +1,7 @@
 import { readGeminiApiKeyFromEnv } from './geminiApiKey.js'
 import { buildHeroVisualLock } from './heroVisualAnchor.js'
 import { formatEstablishedSupportingCast, parseEstablishedIllustrationCast } from './illustrationCastPrompt.js'
+import { parseDataUrlImageForGemini } from './parseDataUrlImage.js'
 
 /** Ratios supported by ImageConfig (string), per Generative Language API. */
 const GEMINI_IMAGE_ASPECT_RATIOS = new Set([
@@ -27,7 +28,7 @@ function normalizeGeminiImageAspectRatio(raw) {
 /**
  * Gemini native image generation (Google AI Studio key, server-side only).
  * @see https://ai.google.dev/gemini-api/docs/image-generation
- * @param {{ narration: string, genre?: string, heroName?: string, heroGender?: string, lastChoice?: string, sceneNumber?: number, establishedIllustrationCast?: Record<string, string> }} input
+ * @param {{ narration: string, genre?: string, heroName?: string, heroGender?: string, heroReferenceDataUrl?: string, lastChoice?: string, sceneNumber?: number, establishedIllustrationCast?: Record<string, string> }} input
  * @returns {Promise<string>} Data URL (e.g. data:image/png;base64,...) for use as img src
  */
 export async function generateSceneIllustrationDataUrl(input) {
@@ -70,7 +71,9 @@ export async function generateSceneIllustrationDataUrl(input) {
       ? `This moment follows the reader's choice: "${lastChoice}". Show that situation visually (no text in the image).`
       : ''
 
-  const prompt = [
+  const refParsed = parseDataUrlImageForGemini(input.heroReferenceDataUrl)
+
+  const promptText = [
     visualLock.lockBlock,
     supportLock,
     'OUTFIT AND CAST INTEGRITY: For the hero and every name in SUPPORTING CAST LOCK, only the LOCK text defines their clothes, hair, and body. SCENE ACTION describes what happens — it must NOT replace locked outfits, haircuts, species, or gender presentation. If the narration mentions armor, uniforms, disguises, or costume changes, show those as removable props (held helmet, folded cloak) or background elements, not as a redesign of locked characters.',
@@ -104,10 +107,44 @@ export async function generateSceneIllustrationDataUrl(input) {
     },
   }
 
+  const textMax = refParsed ? 7200 : 8000
+  const partsWithRef = refParsed
+    ? [
+        { inlineData: { mimeType: refParsed.mimeType, data: refParsed.data } },
+        {
+          text: (
+            'The first input is a reference image of the protagonist from the opening scene. Generate ONE new illustration: keep the same child — same facial identity, hair shape and color, skin tone, body, gender presentation, and the same core outfit colors and garment types as the reference. Change only pose, expression, framing, lighting, background, and supporting characters per the text below. If any text conflicts with the reference face or outfit, follow the reference. ' +
+            promptText
+          ).slice(0, textMax),
+        },
+      ]
+    : [{ text: promptText.slice(0, textMax) }]
+
+  try {
+    return await geminiImageFromParts(partsWithRef, apiKey, url, generationConfig)
+  } catch (e) {
+    if (refParsed && e && typeof e === 'object' && 'status' in e && e.status === 400) {
+      console.warn(
+        '[sceneIllustration] multimodal reference rejected; retrying without reference image.',
+        e instanceof Error ? e.message : e,
+      )
+      return await geminiImageFromParts([{ text: promptText.slice(0, 8000) }], apiKey, url, generationConfig)
+    }
+    throw e
+  }
+}
+
+/**
+ * @param {unknown[]} parts
+ * @param {string} apiKey
+ * @param {string} url
+ * @param {{ responseModalities: string[], imageConfig: { aspectRatio: string } }} generationConfig
+ */
+async function geminiImageFromParts(parts, apiKey, url, generationConfig) {
   const body = {
     contents: [
       {
-        parts: [{ text: prompt.slice(0, 8000) }],
+        parts,
       },
     ],
     generationConfig,

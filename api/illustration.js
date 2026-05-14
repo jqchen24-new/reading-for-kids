@@ -13,7 +13,7 @@ function sendJson(res, statusCode, obj) {
 
 /**
  * Vercel Serverless — POST /api/illustration
- * Body: { "narration", "genre"?, "heroName"?, "heroGender"?, "lastChoice"?, "sceneNumber"?, "establishedIllustrationCast"? }
+ * Body: { "narration", "genre"?, "heroName"?, "heroGender"?, "heroReferenceImage"? (data URL), "lastChoice"?, "sceneNumber"?, "establishedIllustrationCast"? }
  * Response: { "illustrationUrl": "data:image/...;base64,..." } (data URL) or 503 when disabled / not configured.
  */
 export default async function handler(req, res) {
@@ -77,6 +77,10 @@ export default async function handler(req, res) {
   const sceneNumber = Number.isFinite(sceneNum) ? sceneNum : undefined
   const establishedIllustrationCast = parseEstablishedIllustrationCast(body.establishedIllustrationCast)
   const heroGender = parseHeroGender(body.heroGender)
+  const heroReferenceDataUrl =
+    typeof body.heroReferenceImage === 'string' && body.heroReferenceImage.startsWith('data:image/')
+      ? body.heroReferenceImage
+      : undefined
 
   try {
     const illustrationUrl = await generateSceneIllustrationDataUrl({
@@ -84,6 +88,7 @@ export default async function handler(req, res) {
       genre,
       heroName,
       heroGender,
+      heroReferenceDataUrl,
       lastChoice,
       sceneNumber,
       establishedIllustrationCast,

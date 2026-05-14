@@ -32,6 +32,8 @@ export default function App() {
   const illustrationsOffRef = useRef(false)
   /** Data URLs keyed by choice path — avoids regenerating art when using prev/next. */
   const illustrationByPathKeyRef = useRef(/** @type {Record<string, string>} */ ({}))
+  /** Scene 1 illustration — sent to Gemini for later scenes so the hero matches across pages. */
+  const heroIllustrationAnchorRef = useRef(/** @type {string | null} */ (null))
   const storyPagesRef = useRef(/** @type {StoryPage[]} */ ([]))
   const pageIndexRef = useRef(0)
 
@@ -124,6 +126,9 @@ export default function App() {
 
     const cached = illustrationByPathKeyRef.current[pathKey]
     if (cached) {
+      if (sceneNumber === 1) {
+        heroIllustrationAnchorRef.current = cached
+      }
       setIllustrationUrl(cached)
       setIllustrationStatus('ready')
       setIllustrationDisableCode(null)
@@ -131,6 +136,10 @@ export default function App() {
     }
 
     const ac = new AbortController()
+
+    const scene1PathKey = `${heroGender}\u0001`
+    const anchorFallback =
+      heroIllustrationAnchorRef.current || illustrationByPathKeyRef.current[scene1PathKey]
 
     queueMicrotask(() => {
       if (ac.signal.aborted) return
@@ -143,6 +152,8 @@ export default function App() {
         genre,
         heroName: resolvedHero,
         heroGender,
+        heroReferenceImage:
+          sceneNumber > 1 && anchorFallback ? anchorFallback : undefined,
         lastChoice,
         sceneNumber,
         establishedIllustrationCast: illustrationCastMap,
@@ -159,6 +170,9 @@ export default function App() {
           }
           if (r.illustrationUrl) {
             illustrationByPathKeyRef.current[pathKey] = r.illustrationUrl
+            if (sceneNumber === 1) {
+              heroIllustrationAnchorRef.current = r.illustrationUrl
+            }
             setIllustrationUrl(r.illustrationUrl)
             setIllustrationStatus('ready')
           } else {
@@ -281,6 +295,7 @@ export default function App() {
   const goHome = useCallback(() => {
     illustrationsOffRef.current = false
     illustrationByPathKeyRef.current = {}
+    heroIllustrationAnchorRef.current = null
     stop()
     setStoryPages([])
     setPageIndex(0)
