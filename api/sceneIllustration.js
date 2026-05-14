@@ -4,13 +4,15 @@ import { formatEstablishedSupportingCast, parseEstablishedIllustrationCast } fro
 import { softenWardrobeLanguageForImage } from './narrationImageSanitize.js'
 import { parseDataUrlImageForGemini } from './parseDataUrlImage.js'
 
-/** Ratios supported by ImageConfig (string), per Generative Language API. */
+/** Ratios supported by ImageConfig (string), per Generative Language API / Nano Banana family. */
 const GEMINI_IMAGE_ASPECT_RATIOS = new Set([
   '1:1',
   '2:3',
   '3:2',
   '3:4',
   '4:3',
+  '4:5',
+  '5:4',
   '9:16',
   '16:9',
   '21:9',
@@ -28,6 +30,7 @@ function normalizeGeminiImageAspectRatio(raw) {
 
 /**
  * Gemini native image generation (Google AI Studio key, server-side only).
+ * Default model is **Nano Banana 2** (`gemini-3.1-flash-image-preview`). Override with `GEMINI_IMAGE_MODEL`.
  * @see https://ai.google.dev/gemini-api/docs/image-generation
  * @param {{ narration: string, genre?: string, heroName?: string, heroGender?: string, heroReferenceDataUrl?: string, lastChoice?: string, sceneNumber?: number, establishedIllustrationCast?: Record<string, string> }} input
  * @returns {Promise<string>} Data URL (e.g. data:image/png;base64,...) for use as img src
@@ -100,7 +103,7 @@ export async function generateSceneIllustrationDataUrl(input) {
     .join(' ')
 
   const model =
-    process.env.GEMINI_IMAGE_MODEL?.trim() || 'gemini-2.5-flash-image'
+    process.env.GEMINI_IMAGE_MODEL?.trim() || 'gemini-3.1-flash-image-preview'
   const aspectRatio = normalizeGeminiImageAspectRatio(
     process.env.GEMINI_IMAGE_ASPECT_RATIO?.trim() || '16:9',
   )
