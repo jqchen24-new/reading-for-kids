@@ -8,7 +8,7 @@ import { parseHeroGender } from './heroGender.js'
  * @param {string} heroName
  * @param {string} genre
  * @param {unknown} [heroGenderRaw] 'girl' | 'boy' | 'neutral' from client
- * @returns {{ lockBlock: string, lockRecap: string }} Long lock + one-line recap for the end of the prompt.
+ * @returns {{ lockBlock: string, lockRecap: string, heroOutfitExact: string, heroAccessoryExact: string }} Long lock + one-line recap + outfit lines for image prompts.
  */
 export function buildHeroVisualLock(heroName, genre, heroGenderRaw) {
   const hero = typeof heroName === 'string' && heroName.trim() ? heroName.trim().slice(0, 40) : 'Hero'
@@ -121,7 +121,12 @@ export function buildHeroVisualLock(heroName, genre, heroGenderRaw) {
   const lockRecap =
     `FINAL CHECK: "${hero}" must match the CHARACTER LOCK above — same gender presentation, face, hair, skin, outfit colors, and accessory; only pose and scene change.`
 
-  return { lockBlock, lockRecap }
+  return {
+    lockBlock,
+    lockRecap,
+    heroOutfitExact: outfit,
+    heroAccessoryExact: accessory,
+  }
 }
 
 /** @param {string} s */

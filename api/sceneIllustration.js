@@ -1,6 +1,7 @@
 import { readGeminiApiKeyFromEnv } from './geminiApiKey.js'
 import { buildHeroVisualLock } from './heroVisualAnchor.js'
 import { formatEstablishedSupportingCast, parseEstablishedIllustrationCast } from './illustrationCastPrompt.js'
+import { softenWardrobeLanguageForImage } from './narrationImageSanitize.js'
 import { parseDataUrlImageForGemini } from './parseDataUrlImage.js'
 
 /** Ratios supported by ImageConfig (string), per Generative Language API. */
@@ -72,9 +73,16 @@ export async function generateSceneIllustrationDataUrl(input) {
       : ''
 
   const refParsed = parseDataUrlImageForGemini(input.heroReferenceDataUrl)
+  const narrationForImage =
+    sceneNum > 1 ? softenWardrobeLanguageForImage(narration) : narration
+
+  const outfitLock =
+    `HERO WARDROBE (absolute — same shirt/pants/dress layers and colors every image): "${visualLock.heroOutfitExact}". ACCESSORY (always): "${visualLock.heroAccessoryExact}". ` +
+    `The protagonist "${hero}" must never get a new costume from story text — only this wardrobe (or the reference image) with pose changed. `
 
   const promptText = [
     visualLock.lockBlock,
+    outfitLock,
     supportLock,
     'OUTFIT AND CAST INTEGRITY: For the hero and every name in SUPPORTING CAST LOCK, only the LOCK text defines their clothes, hair, and body. SCENE ACTION describes what happens — it must NOT replace locked outfits, haircuts, species, or gender presentation. If the narration mentions armor, uniforms, disguises, or costume changes, show those as removable props (held helmet, folded cloak) or background elements, not as a redesign of locked characters.',
     "The narration below describes ONLY what is happening (action, setting, props). Do not let it change the protagonist's locked face, hair length, skin tone, gender presentation, or base outfit colors.",
@@ -84,7 +92,8 @@ export async function generateSceneIllustrationDataUrl(input) {
     'Safe and mild — no gore, weapons, or scary horror imagery.',
     `Genre: ${genre}. Protagonist name (for identity only): ${hero}.`,
     branchLine,
-    `SCENE ACTION (pose and setting; keep CHARACTER LOCK for the hero): ${narration}`,
+    `SCENE ACTION (setting, props, other characters, body pose — NOT new clothes for "${hero}"): ${narrationForImage}`,
+    outfitLock,
     visualLock.lockRecap,
   ]
     .filter(Boolean)
@@ -113,7 +122,7 @@ export async function generateSceneIllustrationDataUrl(input) {
         { inlineData: { mimeType: refParsed.mimeType, data: refParsed.data } },
         {
           text: (
-            'The first input is a reference image of the protagonist from the opening scene. Generate ONE new illustration: keep the same child — same facial identity, hair shape and color, skin tone, body, gender presentation, and the same core outfit colors and garment types as the reference. Change only pose, expression, framing, lighting, background, and supporting characters per the text below. If any text conflicts with the reference face or outfit, follow the reference. ' +
+            'The first input is a reference image of the protagonist from the opening scene. Generate ONE new illustration: keep the same child — same facial identity, hair shape and color, skin tone, body, gender presentation, and the same core outfit colors and garment types as the reference. Change only pose, expression, framing, lighting, background, and supporting characters per the text below. If any text conflicts with the reference face or outfit, follow the reference. The written OUTFIT lines in the prompt also define colors — if they disagree with the reference, prefer the REFERENCE image for cloth shapes and colors. ' +
             promptText
           ).slice(0, textMax),
         },

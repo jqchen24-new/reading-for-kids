@@ -42,18 +42,33 @@ export async function synthesizeNeuralSpeech(text) {
     throw err
   }
   if (r.provider === 'openai') {
-    try {
-      const hasGemini = Boolean(readGeminiApiKeyFromEnv())
-      const parsed = Number.parseInt(process.env.OPENAI_TTS_FAILFAST_MS ?? '', 10)
-      const failFastMs = Number.isFinite(parsed) && parsed >= 800 ? parsed : 14000
-      const buffer =
-        ttsProviderIsAutoOrUnset() && hasGemini
-          ? await withTimeout(failFastMs, synthesizeSpeechToMp3(text))
-          : await synthesizeSpeechToMp3(text)
+    const hasGemini = Boolean(readGeminiApiKeyFromEnv())
+    const parsed = Number.parseInt(process.env.OPENAI_TTS_FAILFAST_MS ?? '', 10)
+    const failFastMs = Number.isFinite(parsed) && parsed >= 800 ? parsed : 28000
+
+    const tryOpenAi = async () => {
+      const buffer = await synthesizeSpeechToMp3(text)
       return { buffer, contentType: 'audio/mpeg' }
-    } catch (e) {
-      const hasGemini = Boolean(readGeminiApiKeyFromEnv())
+    }
+
+    try {
       if (ttsProviderIsAutoOrUnset() && hasGemini) {
+        const buffer = await withTimeout(failFastMs, synthesizeSpeechToMp3(text))
+        return { buffer, contentType: 'audio/mpeg' }
+      }
+      return await tryOpenAi()
+    } catch (e) {
+      const hasGemini2 = Boolean(readGeminiApiKeyFromEnv())
+      if (ttsProviderIsAutoOrUnset() && hasGemini2) {
+        if (e?.code === 'TTS_TIMEOUT') {
+          try {
+            return await tryOpenAi()
+          } catch (e2) {
+            console.warn('[neural TTS] OpenAI failed after slow retry; using Gemini fallback.', e2?.message ?? e2)
+            const buffer = await synthesizeSpeechToWav(text)
+            return { buffer, contentType: 'audio/wav' }
+          }
+        }
         console.warn('[neural TTS] OpenAI failed; using Gemini fallback.', e?.message ?? e)
         const buffer = await synthesizeSpeechToWav(text)
         return { buffer, contentType: 'audio/wav' }
