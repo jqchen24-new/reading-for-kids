@@ -155,26 +155,35 @@ export function useNarrator() {
         prefetchedRef.current = { key: t, ab: ab.slice(0), mime: mimeFromHeader }
 
         const ctx = audioContextRef.current
-        if (ctx && ctx.state === 'running') {
-          try {
-            const audioBuffer = await new Promise((resolve, reject) => {
-              void ctx.decodeAudioData(ab.slice(0), resolve, reject)
-            })
-            if (speakGenRef.current !== myGen) return false
-            const source = ctx.createBufferSource()
-            bufferSourceRef.current = source
-            source.buffer = audioBuffer
-            source.connect(ctx.destination)
-            const sourceGen = myGen
-            source.onended = () => {
-              bufferSourceRef.current = null
-              if (speakGenRef.current === sourceGen) setStatus('idle')
+        if (ctx && ctx.state !== 'closed') {
+          if (ctx.state === 'suspended') {
+            try {
+              await ctx.resume()
+            } catch {
+              /* ignore */
             }
-            setStatus('playing')
-            source.start(0)
-            return true
-          } catch {
-            stopNeuralWebAudio()
+          }
+          if (ctx.state === 'running') {
+            try {
+              const audioBuffer = await new Promise((resolve, reject) => {
+                void ctx.decodeAudioData(ab.slice(0), resolve, reject)
+              })
+              if (speakGenRef.current !== myGen) return false
+              const source = ctx.createBufferSource()
+              bufferSourceRef.current = source
+              source.buffer = audioBuffer
+              source.connect(ctx.destination)
+              const sourceGen = myGen
+              source.onended = () => {
+                bufferSourceRef.current = null
+                if (speakGenRef.current === sourceGen) setStatus('idle')
+              }
+              setStatus('playing')
+              source.start(0)
+              return true
+            } catch {
+              stopNeuralWebAudio()
+            }
           }
         }
 

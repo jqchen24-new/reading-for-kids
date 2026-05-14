@@ -82,8 +82,14 @@ export async function synthesizeNeuralSpeech(text) {
     return { buffer, contentType: 'audio/wav' }
   } catch (e) {
     const hasOpenai = Boolean(process.env.OPENAI_API_KEY?.trim())
-    if (ttsProviderIsAutoOrUnset() && hasOpenai) {
-      console.warn('[neural TTS] Gemini failed; using OpenAI fallback.', e?.message ?? e)
+    const explicitGemini = process.env.TTS_PROVIDER?.trim().toLowerCase() === 'gemini'
+    const geminiQuota =
+      e?.code === 'GEMINI_TTS_QUOTA' || e?.status === 429
+    const useOpenAiFallback =
+      hasOpenai &&
+      (ttsProviderIsAutoOrUnset() || (explicitGemini && geminiQuota))
+    if (useOpenAiFallback) {
+      console.warn('[neural TTS] Gemini TTS failed; using OpenAI fallback.', e?.message ?? e)
       const buffer = await synthesizeSpeechToMp3(text)
       return { buffer, contentType: 'audio/mpeg' }
     }

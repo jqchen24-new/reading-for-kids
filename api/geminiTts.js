@@ -113,7 +113,7 @@ export async function synthesizeSpeechToWav(text) {
 
       const err = new Error(geminiHttpErrorMessage(res, rawText))
       err.status = res.status
-      err.code = 'GEMINI_TTS_ERROR'
+      err.code = res.status === 429 ? 'GEMINI_TTS_QUOTA' : 'GEMINI_TTS_ERROR'
       throw err
     }
 
