@@ -1,7 +1,49 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { jsonSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/json-schema.mjs'
 import { parseHeroGender, heroGenderNarrationRule } from './heroGender.js'
 import { parseEstablishedIllustrationCast } from './illustrationCastPrompt.js'
-import { parseSceneFromModelText } from './parseSceneJson.js'
+import {
+  normalizeParsedSceneObject,
+  parseSceneFromModelText,
+} from './parseSceneJson.js'
+
+/** JSON schema for Anthropic structured outputs — guarantees valid JSON and escaped strings. */
+const SCENE_OUTPUT_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['narration', 'choices', 'isEnding', 'illustrationCast'],
+  properties: {
+    narration: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 12000,
+    },
+    choices: {
+      type: 'array',
+      maxItems: 2,
+      items: {
+        type: 'string',
+        maxLength: 240,
+      },
+    },
+    isEnding: { type: 'boolean' },
+    illustrationCast: {
+      type: 'array',
+      maxItems: 4,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'look'],
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 80 },
+          look: { type: 'string', minLength: 1, maxLength: 800 },
+        },
+      },
+    },
+  },
+}
+
+const sceneStructuredOutputFormat = jsonSchemaOutputFormat(SCENE_OUTPUT_JSON_SCHEMA)
 
 const SYSTEM_PROMPT = `You are a children's story narrator for ages 7–9. You write in a warm, exciting, age-appropriate voice. Each scene should be 3–5 sentences. Keep peril mild and safe; no graphic violence, no romance, no profanity. The named hero is always the protagonist.
 
@@ -17,7 +59,7 @@ When you output "illustrationCast", each supporting character's "look" sentence 
 
 The reader may set hero gender (girl, boy, or neutral) in the story setup — honor that with matching pronouns for the hero for the whole run.
 
-Always respond in valid JSON only — no extra text, no markdown, no code fences.`
+Your reply must match the API's JSON schema (structured output): only the required keys, valid JSON types, and no prose outside the object. For dialogue inside narration or choices, use single quotes or em dashes — avoid raw double-quote characters inside string values.`
 
 /** @param {unknown} body */
 export function normalizeStoryPayload(body) {
@@ -160,12 +202,19 @@ export async function generateStoryScene(payload) {
   const client = new Anthropic({ apiKey })
   const userContent = buildUserPrompt(payload)
 
-  const message = await client.messages.create({
+  const message = await client.messages.parse({
     model,
     max_tokens: 4096,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userContent }],
+    output_config: {
+      format: sceneStructuredOutputFormat,
+    },
   })
+
+  if (message.parsed_output != null) {
+    return normalizeParsedSceneObject(message.parsed_output)
+  }
 
   const textParts =
     message.content

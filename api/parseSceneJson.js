@@ -1,4 +1,54 @@
 /**
+ * Normalize raw parsed JSON from the model into a validated scene object.
+ * @param {unknown} parsed
+ * @returns {{ narration: string, choices: string[], isEnding: boolean, illustrationCast?: Array<{ name: string, look: string }> }}
+ */
+export function normalizeParsedSceneObject(parsed) {
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Invalid scene: root must be an object')
+  }
+
+  const p = /** @type {Record<string, unknown>} */ (parsed)
+
+  if (typeof p.narration !== 'string' || !p.narration.trim()) {
+    throw new Error('Invalid scene: narration')
+  }
+
+  const isEnding = Boolean(p.isEnding)
+
+  let choices = []
+  if (Array.isArray(p.choices)) {
+    choices = p.choices
+      .filter((c) => typeof c === 'string' && c.trim())
+      .map((c) => c.trim())
+  }
+
+  const illustrationCast = normalizeIllustrationCast(p.illustrationCast)
+
+  if (isEnding) {
+    const base = { narration: p.narration.trim(), choices: [], isEnding: true }
+    if (illustrationCast) {
+      base.illustrationCast = illustrationCast
+    }
+    return base
+  }
+
+  if (choices.length !== 2) {
+    throw new Error('Invalid scene: expected exactly 2 choices')
+  }
+
+  const base = {
+    narration: p.narration.trim(),
+    choices: [choices[0], choices[1]],
+    isEnding: false,
+  }
+  if (illustrationCast) {
+    base.illustrationCast = illustrationCast
+  }
+  return base
+}
+
+/**
  * Extract and validate scene JSON from model output (handles ```json fences).
  * @param {string} text
  * @returns {{ narration: string, choices: string[], isEnding: boolean, illustrationCast?: Array<{ name: string, look: string }> }}
@@ -28,42 +78,16 @@ export function parseSceneFromModelText(text) {
     throw err
   }
 
-  if (typeof parsed.narration !== 'string' || !parsed.narration.trim()) {
-    throw new Error('Invalid scene: narration')
+  try {
+    return normalizeParsedSceneObject(parsed)
+  } catch (normErr) {
+    const err =
+      normErr instanceof Error
+        ? normErr
+        : new Error(String(normErr))
+    err.code = err.code || 'PARSE_ERROR'
+    throw err
   }
-
-  const isEnding = Boolean(parsed.isEnding)
-
-  let choices = []
-  if (Array.isArray(parsed.choices)) {
-    choices = parsed.choices
-      .filter((c) => typeof c === 'string' && c.trim())
-      .map((c) => c.trim())
-  }
-
-  const illustrationCast = normalizeIllustrationCast(parsed.illustrationCast)
-
-  if (isEnding) {
-    const base = { narration: parsed.narration.trim(), choices: [], isEnding: true }
-    if (illustrationCast) {
-      base.illustrationCast = illustrationCast
-    }
-    return base
-  }
-
-  if (choices.length !== 2) {
-    throw new Error('Invalid scene: expected exactly 2 choices')
-  }
-
-  const base = {
-    narration: parsed.narration.trim(),
-    choices: [choices[0], choices[1]],
-    isEnding: false,
-  }
-  if (illustrationCast) {
-    base.illustrationCast = illustrationCast
-  }
-  return base
 }
 
 /** @param {unknown} raw @returns {Array<{ name: string, look: string }> | undefined} */
