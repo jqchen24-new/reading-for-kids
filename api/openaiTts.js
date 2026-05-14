@@ -20,10 +20,10 @@ export async function synthesizeSpeechToMp3(text) {
 
   const model = process.env.OPENAI_TTS_MODEL?.trim() || 'tts-1-hd'
   const voice = process.env.OPENAI_TTS_VOICE?.trim() || 'nova'
-  const speedRaw = Number.parseFloat(process.env.OPENAI_TTS_SPEED ?? '0.92')
+  const speedRaw = Number.parseFloat(process.env.OPENAI_TTS_SPEED ?? '0.86')
   const speed = Number.isFinite(speedRaw)
     ? Math.min(1.15, Math.max(0.8, speedRaw))
-    : 0.92
+    : 0.86
 
   const res = await fetch('https://api.openai.com/v1/audio/speech', {
     method: 'POST',

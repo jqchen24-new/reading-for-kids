@@ -172,6 +172,11 @@ export function useNarrator() {
               const source = ctx.createBufferSource()
               bufferSourceRef.current = source
               source.buffer = audioBuffer
+              try {
+                source.playbackRate.value = 0.9
+              } catch {
+                /* ignore */
+              }
               source.connect(ctx.destination)
               const sourceGen = myGen
               source.onended = () => {
@@ -201,6 +206,11 @@ export function useNarrator() {
           /* ignore */
         }
         audio.volume = 1
+        try {
+          audio.playbackRate = 0.9
+        } catch {
+          /* ignore */
+        }
         audio.src = url
         audio.preload = 'auto'
         audioRef.current = audio
@@ -291,7 +301,7 @@ export function useNarrator() {
 
         const u = new SpeechSynthesisUtterance(t)
         u.lang = 'en-US'
-        u.rate = iosSpeechGestureOnly ? 0.9 : 0.86
+        u.rate = iosSpeechGestureOnly ? 0.82 : 0.78
         u.pitch = iosSpeechGestureOnly ? 1 : 1.04
         u.volume = 1
 

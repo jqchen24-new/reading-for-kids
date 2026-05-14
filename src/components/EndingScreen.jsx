@@ -18,7 +18,23 @@ export function EndingScreen({
   illustrationUrl = null,
   illustrationStatus = 'idle',
   illustrationDisableCode = null,
+  narrationSubCount = 1,
+  narrationSubIndex = 0,
+  onNarrationSubPrev,
+  onNarrationSubNext,
+  narrationSubNavDisabled = false,
 }) {
+  const showNarrationPager =
+    typeof narrationSubCount === 'number' &&
+    narrationSubCount > 1 &&
+    typeof onNarrationSubPrev === 'function' &&
+    typeof onNarrationSubNext === 'function'
+
+  const subPage = Math.min(
+    Math.max(0, narrationSubIndex),
+    Math.max(0, narrationSubCount - 1),
+  )
+
   const showIllustrationSlot =
     illustrationStatus === 'loading' ||
     (illustrationStatus === 'ready' && Boolean(illustrationUrl))
@@ -111,12 +127,38 @@ export function EndingScreen({
       )}
 
       <div
-        className="w-full max-h-[min(45vh,380px)] overflow-y-auto rounded-2xl border border-slate-600 bg-slate-900/80 p-6 text-left text-xl leading-relaxed text-slate-100 sm:text-2xl"
+        className="w-full max-h-[min(40vh,340px)] overflow-y-auto rounded-2xl border border-slate-600 bg-slate-900/80 p-6 text-left text-xl leading-relaxed text-slate-100 sm:text-2xl"
         role="region"
         aria-live="polite"
       >
         {narration}
       </div>
+
+      {showNarrationPager && (
+        <div className="flex w-full max-w-2xl flex-col items-center gap-2">
+          <p className="text-center text-xs font-medium uppercase tracking-wider text-slate-500">
+            Reading page {subPage + 1} of {narrationSubCount}
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={onNarrationSubPrev}
+              disabled={narrationSubNavDisabled || subPage <= 0}
+              className="rounded-xl border border-slate-600 bg-slate-900/80 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-amber-400/50 hover:bg-slate-800/90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              ← Previous page
+            </button>
+            <button
+              type="button"
+              onClick={onNarrationSubNext}
+              disabled={narrationSubNavDisabled || subPage >= narrationSubCount - 1}
+              className="rounded-xl border border-amber-500/45 bg-amber-500/15 px-4 py-2 text-sm font-semibold text-amber-50 transition hover:border-amber-400/70 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next page →
+            </button>
+          </div>
+        </div>
+      )}
 
       {!speechSupported && (
         <p className="text-center text-sm text-amber-200/90">
