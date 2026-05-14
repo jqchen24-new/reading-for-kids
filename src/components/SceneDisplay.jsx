@@ -3,12 +3,6 @@ import { NarratorButton } from './NarratorButton.jsx'
 export function SceneDisplay({
   narration,
   sceneLabel,
-  narrationSubCount = 1,
-  narrationSubIndex = 0,
-  onNarrationSubPrev,
-  onNarrationSubNext,
-  narrationSubNavDisabled = false,
-  choiceHint = null,
   narratorStatus,
   speechSupported,
   iosSpeechGestureOnly,
@@ -27,16 +21,6 @@ export function SceneDisplay({
   illustrationDisableCode = null,
   children,
 }) {
-  const showNarrationPager =
-    typeof narrationSubCount === 'number' &&
-    narrationSubCount > 1 &&
-    typeof onNarrationSubPrev === 'function' &&
-    typeof onNarrationSubNext === 'function'
-
-  const subPage = Math.min(
-    Math.max(0, narrationSubIndex),
-    Math.max(0, narrationSubCount - 1),
-  )
   const showIllustrationSlot =
     illustrationStatus === 'loading' ||
     (illustrationStatus === 'ready' && Boolean(illustrationUrl))
@@ -154,7 +138,7 @@ export function SceneDisplay({
       />
 
       <div
-        className="max-h-[min(42vh,360px)] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950/70 p-6 shadow-inner"
+        className="max-h-[min(50vh,420px)] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950/70 p-6 shadow-inner"
         role="region"
         aria-live="polite"
         aria-label="Story narration"
@@ -174,38 +158,6 @@ export function SceneDisplay({
           </p>
         )}
       </div>
-
-      {showNarrationPager && (
-        <div className="flex w-full max-w-2xl flex-col items-center gap-2">
-          <p className="text-center text-xs font-medium uppercase tracking-wider text-slate-500">
-            Reading page {subPage + 1} of {narrationSubCount}
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <button
-              type="button"
-              onClick={onNarrationSubPrev}
-              disabled={narrationSubNavDisabled || subPage <= 0}
-              className="rounded-xl border border-slate-600 bg-slate-900/80 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-amber-400/50 hover:bg-slate-800/90 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              ← Previous page
-            </button>
-            <button
-              type="button"
-              onClick={onNarrationSubNext}
-              disabled={narrationSubNavDisabled || subPage >= narrationSubCount - 1}
-              className="rounded-xl border border-amber-500/45 bg-amber-500/15 px-4 py-2 text-sm font-semibold text-amber-50 transition hover:border-amber-400/70 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Next page →
-            </button>
-          </div>
-        </div>
-      )}
-
-      {choiceHint ? (
-        <p className="max-w-2xl rounded-xl border border-slate-600/80 bg-slate-900/50 px-4 py-3 text-center text-sm leading-snug text-slate-400">
-          {choiceHint}
-        </p>
-      ) : null}
 
       {children}
     </div>

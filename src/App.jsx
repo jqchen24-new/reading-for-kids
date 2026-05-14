@@ -5,7 +5,6 @@ import { SceneDisplay } from './components/SceneDisplay.jsx'
 import { SetupScreen } from './components/SetupScreen.jsx'
 import { useNarrator } from './hooks/useNarrator.js'
 import { aggregateCastFromPages } from './lib/illustrationCastMap.js'
-import { splitNarrationIntoPages } from './lib/narrationPages.js'
 import { fetchSceneIllustration, fetchStoryScene } from './lib/storyEngine.js'
 import { isIOSLikeDevice } from './lib/platform.js'
 
@@ -27,8 +26,6 @@ export default function App() {
   )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  /** Within one story scene, which slice of split narration is shown / read aloud. */
-  const [narrationSubIndex, setNarrationSubIndex] = useState(0)
   const [illustrationUrl, setIllustrationUrl] = useState(null)
   const [illustrationStatus, setIllustrationStatus] = useState('idle')
   const [illustrationDisableCode, setIllustrationDisableCode] = useState(null)
@@ -89,56 +86,29 @@ export default function App() {
 
   const currentScene = storyPages[safePageIndex]?.scene ?? null
 
-  const narrationPages = useMemo(
-    () => splitNarrationIntoPages(currentScene?.narration ?? ''),
-    [currentScene?.narration],
-  )
-
-  const safeNarrationSub = Math.min(
-    narrationSubIndex,
-    Math.max(0, narrationPages.length - 1),
-  )
-  const displayedNarration = narrationPages[safeNarrationSub] ?? ''
-
-  const atLastNarrationSubPage = safeNarrationSub >= narrationPages.length - 1
-
-  const goNarrationSubPrev = useCallback(() => {
-    primePlaybackFromGesture()
-    stop()
-    setNarrationSubIndex((i) => Math.max(0, i - 1))
-  }, [primePlaybackFromGesture, stop])
-
-  const goNarrationSubNext = useCallback(() => {
-    primePlaybackFromGesture()
-    stop()
-    setNarrationSubIndex((i) =>
-      Math.min(Math.max(0, narrationPages.length - 1), i + 1),
-    )
-  }, [primePlaybackFromGesture, stop, narrationPages.length])
-
   const canGoStoryBack = storyPages.length > 0 && safePageIndex > 0 && !loading
   const canGoStoryForward =
     storyPages.length > 0 && safePageIndex < storyPages.length - 1 && !loading
 
   useEffect(() => {
     if (!iosSpeechGestureOnly) return
-    if (!displayedNarration.trim()) return
+    if (!currentScene?.narration?.trim()) return
     if (loading) return
     if (phase !== 'scene' && phase !== 'ending') return
     const t = window.setTimeout(() => {
-      prefetchNarration(displayedNarration.trim())
+      prefetchNarration(currentScene.narration.trim())
     }, 400)
     return () => window.clearTimeout(t)
-  }, [displayedNarration, iosSpeechGestureOnly, loading, phase, prefetchNarration])
+  }, [currentScene?.narration, iosSpeechGestureOnly, loading, phase, prefetchNarration])
 
   useEffect(() => {
     if (iosSpeechGestureOnly) return
-    if (!displayedNarration.trim()) return
+    if (!currentScene?.narration?.trim()) return
     if (loading) return
     if (phase === 'scene' || phase === 'ending') {
-      speak(displayedNarration)
+      speak(currentScene.narration)
     }
-  }, [phase, displayedNarration, loading, speak, iosSpeechGestureOnly])
+  }, [phase, currentScene?.narration, loading, speak, iosSpeechGestureOnly])
 
   const choiceHistoryKey = useMemo(() => choiceHistory.join('\u0001'), [choiceHistory])
 
@@ -244,7 +214,6 @@ export default function App() {
         choiceHistory: [],
         establishedIllustrationCast: {},
       })
-      setNarrationSubIndex(0)
       setStoryPages([
         {
           choiceHistory: [],
@@ -292,7 +261,6 @@ export default function App() {
           establishedIllustrationCast: castBase,
           priorSceneNarrations,
         })
-        setNarrationSubIndex(0)
         setStoryPages([
           ...truncated,
           {
@@ -314,18 +282,14 @@ export default function App() {
   const goStoryBack = useCallback(() => {
     if (!canGoStoryBack) return
     stop()
-    setNarrationSubIndex(0)
     setPageIndex((i) => Math.max(0, i - 1))
   }, [canGoStoryBack, stop])
 
   const goStoryForward = useCallback(() => {
     if (!canGoStoryForward) return
     stop()
-    setNarrationSubIndex(0)
-    setPageIndex((i) => {
-      const max = storyPagesRef.current.length - 1
-      return Math.min(max, i + 1)
-    })
+    const max = storyPagesRef.current.length - 1
+    setPageIndex((i) => Math.min(max, i + 1))
   }, [canGoStoryForward, stop])
 
   const goHome = useCallback(() => {
@@ -333,7 +297,6 @@ export default function App() {
     illustrationByPathKeyRef.current = {}
     heroIllustrationAnchorRef.current = null
     stop()
-    setNarrationSubIndex(0)
     setStoryPages([])
     setPageIndex(0)
     setError(null)
@@ -346,11 +309,11 @@ export default function App() {
 
   const replayNarration = useCallback(() => {
     primePlaybackFromGesture()
-    const text = displayedNarration.trim()
+    const text = currentScene?.narration?.trim()
     if (text) {
       speak(text)
     }
-  }, [displayedNarration, speak, primePlaybackFromGesture])
+  }, [currentScene, speak, primePlaybackFromGesture])
 
   return (
     <div className="min-h-svh bg-slate-950 text-slate-100">
@@ -380,20 +343,8 @@ export default function App() {
               </p>
             )}
             <SceneDisplay
-              narration={displayedNarration}
+              narration={currentScene.narration}
               sceneLabel={`Scene ${choiceHistory.length + 1} of 6`}
-              narrationSubCount={narrationPages.length}
-              narrationSubIndex={safeNarrationSub}
-              onNarrationSubPrev={goNarrationSubPrev}
-              onNarrationSubNext={goNarrationSubNext}
-              narrationSubNavDisabled={loading}
-              choiceHint={
-                !currentScene.isEnding &&
-                narrationPages.length > 1 &&
-                !atLastNarrationSubPage
-                  ? 'Keep reading — use “Next page” below. After the last page you can choose what happens next.'
-                  : null
-              }
               narratorStatus={narratorStatus}
               speechSupported={speechSupported}
               iosSpeechGestureOnly={iosSpeechGestureOnly}
@@ -415,7 +366,7 @@ export default function App() {
                 <ChoiceCards
                   choices={currentScene.choices}
                   onChoose={choose}
-                  disabled={loading || !atLastNarrationSubPage}
+                  disabled={loading}
                 />
               )}
             </SceneDisplay>
@@ -424,7 +375,7 @@ export default function App() {
 
         {phase === 'ending' && currentScene && (
           <EndingScreen
-            narration={displayedNarration}
+            narration={currentScene.narration}
             narratorStatus={narratorStatus}
             speechSupported={speechSupported}
             iosSpeechGestureOnly={iosSpeechGestureOnly}
@@ -441,11 +392,6 @@ export default function App() {
             illustrationUrl={illustrationUrl}
             illustrationStatus={illustrationStatus}
             illustrationDisableCode={illustrationDisableCode}
-            narrationSubCount={narrationPages.length}
-            narrationSubIndex={safeNarrationSub}
-            onNarrationSubPrev={goNarrationSubPrev}
-            onNarrationSubNext={goNarrationSubNext}
-            narrationSubNavDisabled={loading}
           />
         )}
       </main>
