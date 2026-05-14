@@ -4,6 +4,10 @@ import { parseSceneFromModelText } from './parseSceneJson.js'
 
 const SYSTEM_PROMPT = `You are a children's story narrator for ages 7–9. You write in a warm, exciting, age-appropriate voice. Each scene should be 3–5 sentences. Keep peril mild and safe; no graphic violence, no romance, no profanity. The named hero is always the protagonist.
 
+This is ONE continuous branching adventure, not isolated vignettes. When "STORY SO FAR" is provided, it is canonical: build the next scene as the immediate sequel—same world, same relationships, same facts. Do not reset tone as if starting a new tale.
+
+Characters who already met in prior scenes already know each other. Do not have them introduce themselves again, repeat their name and species as a first meeting, or replay the same greeting or backstory unless the plot needs a single brief nod (a few words), never a full re-introduction.
+
 This is a branching interactive story: after scene 1, every new scene MUST follow the reader's latest choice and show clear consequences before adding new twists. Never ignore, skip, or contradict the branch they just picked.
 
 When you output "illustrationCast", each supporting character's "look" sentence is the official design for them for the whole story: keep it stable across scenes. If the user lists ESTABLISHED SUPPORTING CAST lines, reuse those exact look strings verbatim for the same names.
@@ -27,7 +31,14 @@ export function normalizeStoryPayload(body) {
 
   const establishedIllustrationCast = parseEstablishedIllustrationCast(b.establishedIllustrationCast)
 
-  return { genre, heroName, sceneNumber, choiceHistory, establishedIllustrationCast }
+  const priorSceneNarrations = Array.isArray(b.priorSceneNarrations)
+    ? b.priorSceneNarrations
+        .filter((s) => typeof s === 'string' && s.trim())
+        .map((s) => s.trim().slice(0, 1600))
+        .slice(0, 5)
+    : []
+
+  return { genre, heroName, sceneNumber, choiceHistory, establishedIllustrationCast, priorSceneNarrations }
 }
 
 function buildUserPrompt({
@@ -36,6 +47,7 @@ function buildUserPrompt({
   sceneNumber,
   choiceHistory,
   establishedIllustrationCast,
+  priorSceneNarrations,
 }) {
   const historyLines =
     choiceHistory.length === 0
@@ -44,6 +56,13 @@ function buildUserPrompt({
 
   const lastChoice =
     choiceHistory.length > 0 ? choiceHistory[choiceHistory.length - 1].trim() : ''
+
+  const storySoFarBlock =
+    priorSceneNarrations.length === 0
+      ? 'STORY SO FAR: (none — this is the opening scene.)'
+      : `STORY SO FAR (canonical text the reader already saw; continue the same thread; do not contradict or soft-reboot):\n${priorSceneNarrations
+          .map((text, i) => `--- Prior scene ${i + 1} ---\n${text}`)
+          .join('\n\n')}`
 
   const branchInstructions =
     sceneNumber <= 1
@@ -55,6 +74,11 @@ function buildUserPrompt({
           `- Stay consistent with all earlier choices listed above, especially this last one.\n` +
           `- Not reset the plot, not "meanwhile elsewhere," and not follow a different branch than "${lastChoice}".`
         : `Continue the story coherently from the prior scene even though choice text is missing from history.`
+
+  const continuityTail =
+    sceneNumber > 1 && priorSceneNarrations.length > 0
+      ? `\nAlso anchor to how the last prior scene ended (where they were, what just happened, who was present). Continue in the same moment unless the reader's choice clearly moves them—no disconnected soft reboot.`
+      : ''
 
   const heroKey = heroName.trim().toLowerCase()
   const establishedLines = Object.keys(establishedIllustrationCast).length
@@ -78,9 +102,11 @@ function buildUserPrompt({
 - Choices made so far (in order, each is what the reader tapped after the previous scene):
 ${historyLines}
 
+${storySoFarBlock}
+
 ${establishedLines}
 
-${branchInstructions}
+${branchInstructions}${continuityTail}
 
 Write the next scene and follow the ending rules below.
 

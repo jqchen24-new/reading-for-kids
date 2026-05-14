@@ -27,6 +27,8 @@ export default function App() {
   const [illustrationStatus, setIllustrationStatus] = useState('idle')
   const [illustrationDisableCode, setIllustrationDisableCode] = useState(null)
   const illustrationsOffRef = useRef(false)
+  /** Data URLs keyed by choice path — avoids regenerating art when using prev/next. */
+  const illustrationByPathKeyRef = useRef(/** @type {Record<string, string>} */ ({}))
   const storyPagesRef = useRef(/** @type {StoryPage[]} */ ([]))
   const pageIndexRef = useRef(0)
 
@@ -112,10 +114,20 @@ export default function App() {
       return
     }
 
+    const pathKey = choiceHistoryKey
+    const parts = pathKey ? pathKey.split('\u0001') : []
+    const sceneNumber = parts.length + 1
+    const lastChoice = parts.length > 0 ? parts[parts.length - 1].trim() : ''
+
+    const cached = illustrationByPathKeyRef.current[pathKey]
+    if (cached) {
+      setIllustrationUrl(cached)
+      setIllustrationStatus('ready')
+      setIllustrationDisableCode(null)
+      return
+    }
+
     const ac = new AbortController()
-    const sceneNumber = choiceHistory.length + 1
-    const lastChoice =
-      choiceHistory.length > 0 ? choiceHistory[choiceHistory.length - 1].trim() : ''
 
     queueMicrotask(() => {
       if (ac.signal.aborted) return
@@ -142,6 +154,7 @@ export default function App() {
             return
           }
           if (r.illustrationUrl) {
+            illustrationByPathKeyRef.current[pathKey] = r.illustrationUrl
             setIllustrationUrl(r.illustrationUrl)
             setIllustrationStatus('ready')
           } else {
@@ -157,7 +170,6 @@ export default function App() {
 
     return () => ac.abort()
   }, [
-    choiceHistory,
     choiceHistoryKey,
     currentScene?.narration,
     phase,
@@ -217,12 +229,16 @@ export default function App() {
       try {
         const truncated = pages.slice(0, idx + 1)
         const castBase = aggregateCastFromPages(truncated, heroKey)
+        const priorSceneNarrations = truncated
+          .map((p) => (typeof p.scene?.narration === 'string' ? p.scene.narration.trim() : ''))
+          .filter(Boolean)
         const scene = await fetchStoryScene({
           genre,
           heroName: resolvedHero,
           sceneNumber: nextHistory.length + 1,
           choiceHistory: nextHistory,
           establishedIllustrationCast: castBase,
+          priorSceneNarrations,
         })
         setStoryPages([
           ...truncated,
@@ -257,6 +273,7 @@ export default function App() {
 
   const goHome = useCallback(() => {
     illustrationsOffRef.current = false
+    illustrationByPathKeyRef.current = {}
     stop()
     setStoryPages([])
     setPageIndex(0)
