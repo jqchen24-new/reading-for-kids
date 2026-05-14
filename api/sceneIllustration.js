@@ -1,5 +1,6 @@
 import { readGeminiApiKeyFromEnv } from './geminiApiKey.js'
-import { buildHeroVisualAnchor } from './heroVisualAnchor.js'
+import { buildHeroVisualLock } from './heroVisualAnchor.js'
+import { formatEstablishedSupportingCast, parseEstablishedIllustrationCast } from './illustrationCastPrompt.js'
 
 /** Ratios supported by ImageConfig (string), per Generative Language API. */
 const GEMINI_IMAGE_ASPECT_RATIOS = new Set([
@@ -26,7 +27,7 @@ function normalizeGeminiImageAspectRatio(raw) {
 /**
  * Gemini native image generation (Google AI Studio key, server-side only).
  * @see https://ai.google.dev/gemini-api/docs/image-generation
- * @param {{ narration: string, genre?: string, heroName?: string, lastChoice?: string, sceneNumber?: number }} input
+ * @param {{ narration: string, genre?: string, heroName?: string, lastChoice?: string, sceneNumber?: number, establishedIllustrationCast?: Record<string, string> }} input
  * @returns {Promise<string>} Data URL (e.g. data:image/png;base64,...) for use as img src
  */
 export async function generateSceneIllustrationDataUrl(input) {
@@ -50,7 +51,14 @@ export async function generateSceneIllustrationDataUrl(input) {
       ? input.heroName.trim().slice(0, 40)
       : 'the hero'
 
-  const visualAnchor = buildHeroVisualAnchor(hero, genre)
+  const visualLock = buildHeroVisualLock(hero, genre)
+
+  const heroLo = hero.trim().toLowerCase()
+  const supportMap = parseEstablishedIllustrationCast(input.establishedIllustrationCast)
+  const supportLock =
+    Object.keys(supportMap).length > 0
+      ? `SUPPORTING CAST LOCK (series canon — reuse exactly; do not redesign faces, species, hair or fur, skin, or outfit colors for these names; only pose, expression, and placement may change. If narration conflicts, keep the lock and adjust props only):\n${formatEstablishedSupportingCast(supportMap, heroLo)}`
+      : ''
 
   const lastChoice =
     typeof input.lastChoice === 'string' && input.lastChoice.trim()
@@ -63,14 +71,17 @@ export async function generateSceneIllustrationDataUrl(input) {
       : ''
 
   const prompt = [
+    visualLock.lockBlock,
+    supportLock,
+    "The narration below describes ONLY what is happening (action, setting, props). Do not let it change the protagonist's locked face, hair length, skin tone, or base outfit colors. If the text mentions different clothes or armor, keep the locked outfit and add removable props (helmet held, cape draped) instead of a full wardrobe change.",
     "Children's picture-book illustration for ages 7–9.",
     'Warm colors, friendly and imaginative, single clear moment, painterly or soft digital style.',
     'Do not include readable text, letters, captions, logos, or watermarks in the image.',
     'Safe and mild — no gore, weapons, or scary horror imagery.',
-    visualAnchor,
-    `Genre: ${genre}. Main character: ${hero}.`,
+    `Genre: ${genre}. Protagonist name (for identity only): ${hero}.`,
     branchLine,
-    `Scene to depict: ${narration}`,
+    `SCENE ACTION (pose and setting; keep CHARACTER LOCK for the hero): ${narration}`,
+    visualLock.lockRecap,
   ]
     .filter(Boolean)
     .join(' ')

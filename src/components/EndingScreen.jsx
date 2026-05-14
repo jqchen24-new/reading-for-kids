@@ -9,6 +9,11 @@ export function EndingScreen({
   onNarratorTogglePause,
   onNarratorStop,
   onGoHome,
+  onGoStoryBack,
+  onGoStoryForward,
+  canGoStoryBack = false,
+  canGoStoryForward = false,
+  storyNavDisabled = false,
   onPlayAgain,
   illustrationUrl = null,
   illustrationStatus = 'idle',
@@ -24,7 +29,7 @@ export function EndingScreen({
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-8 px-4 py-10">
       <div className="flex w-full flex-col gap-4">
-        <div className="flex w-full justify-start">
+        <div className="flex w-full flex-wrap items-center justify-between gap-3">
           <button
             type="button"
             onClick={onGoHome}
@@ -32,6 +37,26 @@ export function EndingScreen({
           >
             ← Home
           </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onGoStoryBack}
+              disabled={!canGoStoryBack || storyNavDisabled}
+              className="rounded-xl border border-slate-600 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-amber-400/60 hover:bg-slate-800/80 hover:text-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Previous scene"
+            >
+              ← Previous
+            </button>
+            <button
+              type="button"
+              onClick={onGoStoryForward}
+              disabled={!canGoStoryForward || storyNavDisabled}
+              className="rounded-xl border border-slate-600 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-amber-400/60 hover:bg-slate-800/80 hover:text-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Next scene"
+            >
+              Next →
+            </button>
+          </div>
         </div>
         <div className="text-center">
           <p className="text-sm font-semibold uppercase tracking-[0.25em] text-amber-300/90">The end</p>

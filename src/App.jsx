@@ -4,21 +4,39 @@ import { EndingScreen } from './components/EndingScreen.jsx'
 import { SceneDisplay } from './components/SceneDisplay.jsx'
 import { SetupScreen } from './components/SetupScreen.jsx'
 import { useNarrator } from './hooks/useNarrator.js'
+import { aggregateCastFromPages } from './lib/illustrationCastMap.js'
 import { fetchSceneIllustration, fetchStoryScene } from './lib/storyEngine.js'
 import { isIOSLikeDevice } from './lib/platform.js'
 
+/**
+ * @typedef {{ choiceHistory: string[], scene: object, phase: 'scene' | 'ending' }} StoryPage
+ */
+
+const EMPTY_CHOICE_HISTORY = Object.freeze([])
+
 export default function App() {
-  const [phase, setPhase] = useState('setup')
+  const [storyPages, setStoryPages] = useState(
+    /** @type {StoryPage[]} */ ([]),
+  )
+  const [pageIndex, setPageIndex] = useState(0)
   const [genre, setGenre] = useState('Adventure')
   const [heroName, setHeroName] = useState('')
-  const [choiceHistory, setChoiceHistory] = useState([])
-  const [currentScene, setCurrentScene] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [illustrationUrl, setIllustrationUrl] = useState(null)
   const [illustrationStatus, setIllustrationStatus] = useState('idle')
   const [illustrationDisableCode, setIllustrationDisableCode] = useState(null)
   const illustrationsOffRef = useRef(false)
+  const storyPagesRef = useRef(/** @type {StoryPage[]} */ ([]))
+  const pageIndexRef = useRef(0)
+
+  useEffect(() => {
+    storyPagesRef.current = storyPages
+  }, [storyPages])
+
+  useEffect(() => {
+    pageIndexRef.current = pageIndex
+  }, [pageIndex])
 
   const {
     speak,
@@ -35,6 +53,35 @@ export default function App() {
     () => (heroName.trim() ? heroName.trim().slice(0, 40) : 'Hero'),
     [heroName],
   )
+
+  const heroKey = useMemo(() => resolvedHero.trim().toLowerCase(), [resolvedHero])
+
+  const safePageIndex = useMemo(
+    () => (storyPages.length === 0 ? 0 : Math.min(Math.max(0, pageIndex), storyPages.length - 1)),
+    [storyPages.length, pageIndex],
+  )
+
+  const illustrationCastMap = useMemo(() => {
+    if (storyPages.length === 0) return /** @type {Record<string, string>} */ ({})
+    const path = storyPages.slice(0, safePageIndex + 1)
+    return aggregateCastFromPages(path, heroKey)
+  }, [storyPages, safePageIndex, heroKey])
+
+  const phase = useMemo(() => {
+    if (storyPages.length === 0) return 'setup'
+    return storyPages[safePageIndex]?.phase === 'ending' ? 'ending' : 'scene'
+  }, [storyPages, safePageIndex])
+
+  const choiceHistory = useMemo(() => {
+    const p = storyPages[safePageIndex]
+    return p?.choiceHistory ?? EMPTY_CHOICE_HISTORY
+  }, [storyPages, safePageIndex])
+
+  const currentScene = storyPages[safePageIndex]?.scene ?? null
+
+  const canGoStoryBack = storyPages.length > 0 && safePageIndex > 0 && !loading
+  const canGoStoryForward =
+    storyPages.length > 0 && safePageIndex < storyPages.length - 1 && !loading
 
   useEffect(() => {
     if (!iosSpeechGestureOnly) return
@@ -56,6 +103,8 @@ export default function App() {
     }
   }, [phase, currentScene?.narration, loading, speak, iosSpeechGestureOnly])
 
+  const choiceHistoryKey = useMemo(() => choiceHistory.join('\u0001'), [choiceHistory])
+
   useEffect(() => {
     if (illustrationsOffRef.current) return
     const narration = currentScene?.narration?.trim()
@@ -64,46 +113,58 @@ export default function App() {
     }
 
     const ac = new AbortController()
-    setIllustrationStatus('loading')
-    setIllustrationUrl(null)
-    setIllustrationDisableCode(null)
-
     const sceneNumber = choiceHistory.length + 1
     const lastChoice =
       choiceHistory.length > 0 ? choiceHistory[choiceHistory.length - 1].trim() : ''
 
-    void fetchSceneIllustration({
-      narration,
-      genre,
-      heroName: resolvedHero,
-      lastChoice,
-      sceneNumber,
-      signal: ac.signal,
-    })
-      .then((r) => {
-        if (ac.signal.aborted) return
-        if (r.disabled) {
-          illustrationsOffRef.current = true
-          setIllustrationStatus('off')
+    queueMicrotask(() => {
+      if (ac.signal.aborted) return
+      setIllustrationStatus('loading')
+      setIllustrationUrl(null)
+      setIllustrationDisableCode(null)
+
+      void fetchSceneIllustration({
+        narration,
+        genre,
+        heroName: resolvedHero,
+        lastChoice,
+        sceneNumber,
+        establishedIllustrationCast: illustrationCastMap,
+        signal: ac.signal,
+      })
+        .then((r) => {
+          if (ac.signal.aborted) return
+          if (r.disabled) {
+            illustrationsOffRef.current = true
+            setIllustrationStatus('off')
+            setIllustrationUrl(null)
+            setIllustrationDisableCode(r.disableCode ?? null)
+            return
+          }
+          if (r.illustrationUrl) {
+            setIllustrationUrl(r.illustrationUrl)
+            setIllustrationStatus('ready')
+          } else {
+            setIllustrationStatus('idle')
+          }
+        })
+        .catch((e) => {
+          if (ac.signal.aborted || e?.name === 'AbortError') return
+          setIllustrationStatus('error')
           setIllustrationUrl(null)
-          setIllustrationDisableCode(r.disableCode ?? null)
-          return
-        }
-        if (r.illustrationUrl) {
-          setIllustrationUrl(r.illustrationUrl)
-          setIllustrationStatus('ready')
-        } else {
-          setIllustrationStatus('idle')
-        }
-      })
-      .catch((e) => {
-        if (ac.signal.aborted || e?.name === 'AbortError') return
-        setIllustrationStatus('error')
-        setIllustrationUrl(null)
-      })
+        })
+    })
 
     return () => ac.abort()
-  }, [currentScene?.narration, phase, genre, resolvedHero, choiceHistory])
+  }, [
+    choiceHistory,
+    choiceHistoryKey,
+    currentScene?.narration,
+    phase,
+    genre,
+    resolvedHero,
+    illustrationCastMap,
+  ])
 
   const startStory = useCallback(async () => {
     primePlaybackFromGesture()
@@ -119,10 +180,16 @@ export default function App() {
         heroName: resolvedHero,
         sceneNumber: 1,
         choiceHistory: [],
+        establishedIllustrationCast: {},
       })
-      setChoiceHistory([])
-      setCurrentScene(scene)
-      setPhase(scene.isEnding ? 'ending' : 'scene')
+      setStoryPages([
+        {
+          choiceHistory: [],
+          scene,
+          phase: scene.isEnding ? 'ending' : 'scene',
+        },
+      ])
+      setPageIndex(0)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not start the story.')
     } finally {
@@ -132,43 +199,67 @@ export default function App() {
 
   const choose = useCallback(
     async (label) => {
-      if (!currentScene || currentScene.isEnding || loading) return
+      const pages = storyPagesRef.current
+      const idx = Math.min(
+        Math.max(0, pageIndexRef.current),
+        Math.max(0, pages.length - 1),
+      )
+      const page = pages[idx]
+      if (!page?.scene || page.scene.isEnding || loading) return
 
       primePlaybackFromGesture()
       stop()
-      const prevHistory = choiceHistory
+      const prevHistory = page.choiceHistory
       const nextHistory = [...prevHistory, label]
-      setChoiceHistory(nextHistory)
       setLoading(true)
       setError(null)
 
       try {
+        const truncated = pages.slice(0, idx + 1)
+        const castBase = aggregateCastFromPages(truncated, heroKey)
         const scene = await fetchStoryScene({
           genre,
           heroName: resolvedHero,
           sceneNumber: nextHistory.length + 1,
           choiceHistory: nextHistory,
+          establishedIllustrationCast: castBase,
         })
-        setCurrentScene(scene)
-        if (scene.isEnding) {
-          setPhase('ending')
-        }
+        setStoryPages([
+          ...truncated,
+          {
+            choiceHistory: nextHistory,
+            scene,
+            phase: scene.isEnding ? 'ending' : 'scene',
+          },
+        ])
+        setPageIndex(truncated.length)
       } catch (e) {
-        setChoiceHistory(prevHistory)
         setError(e instanceof Error ? e.message : 'Could not continue the story.')
       } finally {
         setLoading(false)
       }
     },
-    [choiceHistory, currentScene, genre, loading, resolvedHero, stop, primePlaybackFromGesture],
+    [genre, heroKey, loading, resolvedHero, stop, primePlaybackFromGesture],
   )
+
+  const goStoryBack = useCallback(() => {
+    if (!canGoStoryBack) return
+    stop()
+    setPageIndex((i) => Math.max(0, i - 1))
+  }, [canGoStoryBack, stop])
+
+  const goStoryForward = useCallback(() => {
+    if (!canGoStoryForward) return
+    stop()
+    const max = storyPagesRef.current.length - 1
+    setPageIndex((i) => Math.min(max, i + 1))
+  }, [canGoStoryForward, stop])
 
   const goHome = useCallback(() => {
     illustrationsOffRef.current = false
     stop()
-    setPhase('setup')
-    setChoiceHistory([])
-    setCurrentScene(null)
+    setStoryPages([])
+    setPageIndex(0)
     setError(null)
     setIllustrationUrl(null)
     setIllustrationStatus('idle')
@@ -220,6 +311,11 @@ export default function App() {
               onNarratorTogglePause={togglePause}
               onNarratorStop={stop}
               onGoHome={goHome}
+              onGoStoryBack={goStoryBack}
+              onGoStoryForward={goStoryForward}
+              canGoStoryBack={canGoStoryBack}
+              canGoStoryForward={canGoStoryForward}
+              storyNavDisabled={loading}
               loading={loading}
               illustrationUrl={illustrationUrl}
               illustrationStatus={illustrationStatus}
@@ -246,6 +342,11 @@ export default function App() {
             onNarratorTogglePause={togglePause}
             onNarratorStop={stop}
             onGoHome={goHome}
+            onGoStoryBack={goStoryBack}
+            onGoStoryForward={goStoryForward}
+            canGoStoryBack={canGoStoryBack}
+            canGoStoryForward={canGoStoryForward}
+            storyNavDisabled={loading}
             onPlayAgain={playAgain}
             illustrationUrl={illustrationUrl}
             illustrationStatus={illustrationStatus}

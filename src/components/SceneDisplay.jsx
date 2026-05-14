@@ -10,6 +10,11 @@ export function SceneDisplay({
   onNarratorTogglePause,
   onNarratorStop,
   onGoHome,
+  onGoStoryBack,
+  onGoStoryForward,
+  canGoStoryBack = false,
+  canGoStoryForward = false,
+  storyNavDisabled = false,
   loading,
   illustrationUrl = null,
   illustrationStatus = 'idle',
@@ -25,7 +30,7 @@ export function SceneDisplay({
 
   return (
     <div className="flex w-full max-w-2xl flex-col gap-6 px-4 py-6">
-      <div className="flex w-full justify-start">
+      <div className="flex w-full flex-wrap items-center justify-between gap-3">
         <button
           type="button"
           onClick={onGoHome}
@@ -33,6 +38,26 @@ export function SceneDisplay({
         >
           ← Home
         </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onGoStoryBack}
+            disabled={!canGoStoryBack || storyNavDisabled}
+            className="rounded-xl border border-slate-600 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-amber-400/60 hover:bg-slate-800/80 hover:text-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Previous scene"
+          >
+            ← Previous
+          </button>
+          <button
+            type="button"
+            onClick={onGoStoryForward}
+            disabled={!canGoStoryForward || storyNavDisabled}
+            className="rounded-xl border border-slate-600 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-amber-400/60 hover:bg-slate-800/80 hover:text-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Next scene"
+          >
+            Next →
+          </button>
+        </div>
       </div>
 
       {showIllustrationSlot && (

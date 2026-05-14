@@ -1,9 +1,12 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { parseEstablishedIllustrationCast } from './illustrationCastPrompt.js'
 import { parseSceneFromModelText } from './parseSceneJson.js'
 
 const SYSTEM_PROMPT = `You are a children's story narrator for ages 7–9. You write in a warm, exciting, age-appropriate voice. Each scene should be 3–5 sentences. Keep peril mild and safe; no graphic violence, no romance, no profanity. The named hero is always the protagonist.
 
 This is a branching interactive story: after scene 1, every new scene MUST follow the reader's latest choice and show clear consequences before adding new twists. Never ignore, skip, or contradict the branch they just picked.
+
+When you output "illustrationCast", each supporting character's "look" sentence is the official design for them for the whole story: keep it stable across scenes. If the user lists ESTABLISHED SUPPORTING CAST lines, reuse those exact look strings verbatim for the same names.
 
 Always respond in valid JSON only — no extra text, no markdown, no code fences.`
 
@@ -22,10 +25,18 @@ export function normalizeStoryPayload(body) {
     ? b.choiceHistory.filter((c) => typeof c === 'string' && c.trim()).map((c) => c.trim().slice(0, 200)).slice(0, 20)
     : []
 
-  return { genre, heroName, sceneNumber, choiceHistory }
+  const establishedIllustrationCast = parseEstablishedIllustrationCast(b.establishedIllustrationCast)
+
+  return { genre, heroName, sceneNumber, choiceHistory, establishedIllustrationCast }
 }
 
-function buildUserPrompt({ genre, heroName, sceneNumber, choiceHistory }) {
+function buildUserPrompt({
+  genre,
+  heroName,
+  sceneNumber,
+  choiceHistory,
+  establishedIllustrationCast,
+}) {
   const historyLines =
     choiceHistory.length === 0
       ? '(none yet)'
@@ -45,6 +56,15 @@ function buildUserPrompt({ genre, heroName, sceneNumber, choiceHistory }) {
           `- Not reset the plot, not "meanwhile elsewhere," and not follow a different branch than "${lastChoice}".`
         : `Continue the story coherently from the prior scene even though choice text is missing from history.`
 
+  const heroKey = heroName.trim().toLowerCase()
+  const establishedLines = Object.keys(establishedIllustrationCast).length
+    ? `ESTABLISHED SUPPORTING CAST (lowercase keys; if any name appears again in this scene, copy their look string EXACTLY from here — do not rewrite):\n${Object.entries(establishedIllustrationCast)
+        .filter(([k]) => k && k !== heroKey)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `- ${k}: ${v}`)
+        .join('\n')}`
+    : '(none yet — introduce 0–4 supporting characters with vivid one-line looks as needed.)'
+
   const endingRules =
     sceneNumber >= 6
       ? `This is the FINAL scene (scene 6 of 6). Write a satisfying conclusion that wraps up the adventure. Set "isEnding" to true and "choices" to an empty array []. Do not offer new branches.`
@@ -58,20 +78,32 @@ function buildUserPrompt({ genre, heroName, sceneNumber, choiceHistory }) {
 - Choices made so far (in order, each is what the reader tapped after the previous scene):
 ${historyLines}
 
+${establishedLines}
+
 ${branchInstructions}
 
 Write the next scene and follow the ending rules below.
 
 ${endingRules}
 
-Respond in this exact JSON shape (keys required):
+Respond in this exact JSON shape (keys required; include "illustrationCast" as an array, using [] if no named supporting characters appear):
 {
   "narration": "Scene text here...",
   "choices": ["Choice A", "Choice B"],
-  "isEnding": false
+  "isEnding": false,
+  "illustrationCast": [
+    { "name": "SupportingName", "look": "One vivid sentence: species/build, hair or fur, outfit colors, one memorable detail. Stable for the whole story." }
+  ]
 }
 
-If this is the final scene, use "choices": [] and "isEnding": true.`
+Rules for "illustrationCast":
+- Always include the key. Use an empty array [] if no named supporting characters appear in this scene.
+- At most 4 objects. Do NOT include the hero "${heroName}" (the app locks the hero separately).
+- List named supporting characters who appear in THIS scene's narration (friends, pets, robots, mentors, rivals, etc.).
+- If a name appears in ESTABLISHED SUPPORTING CAST above, reuse that exact "look" string (same spelling and punctuation).
+- For brand-new names, write a new vivid "look" sentence you can keep consistent if they return later.
+
+If this is the final scene, use "choices": [] and "isEnding": true (illustrationCast may still list who appears in the ending).`
 }
 
 /**

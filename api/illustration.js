@@ -1,5 +1,6 @@
 import { generateSceneIllustrationDataUrl } from './sceneIllustration.js'
 import { readGeminiApiKeyFromEnv } from './geminiApiKey.js'
+import { parseEstablishedIllustrationCast } from './illustrationCastPrompt.js'
 import { readRequestBody } from './readRequestBody.js'
 import { isSceneIllustrationsEnabled } from './sceneIllustrationsEnv.js'
 
@@ -11,7 +12,7 @@ function sendJson(res, statusCode, obj) {
 
 /**
  * Vercel Serverless — POST /api/illustration
- * Body: { "narration": "...", "genre"?: "...", "heroName"?: "...", "lastChoice"?: "...", "sceneNumber"?: number }
+ * Body: { "narration", "genre"?, "heroName"?, "lastChoice"?, "sceneNumber"?, "establishedIllustrationCast"? (name->look) }
  * Response: { "illustrationUrl": "data:image/...;base64,..." } (data URL) or 503 when disabled / not configured.
  */
 export default async function handler(req, res) {
@@ -73,6 +74,7 @@ export default async function handler(req, res) {
   const lastChoice = typeof body.lastChoice === 'string' ? body.lastChoice.trim() : ''
   const sceneNum = Number.parseInt(String(body.sceneNumber ?? ''), 10)
   const sceneNumber = Number.isFinite(sceneNum) ? sceneNum : undefined
+  const establishedIllustrationCast = parseEstablishedIllustrationCast(body.establishedIllustrationCast)
 
   try {
     const illustrationUrl = await generateSceneIllustrationDataUrl({
@@ -81,6 +83,7 @@ export default async function handler(req, res) {
       heroName,
       lastChoice,
       sceneNumber,
+      establishedIllustrationCast,
     })
     if (
       typeof illustrationUrl !== 'string' ||
