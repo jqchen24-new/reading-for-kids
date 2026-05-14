@@ -8,6 +8,19 @@ function ttsProviderIsAutoOrUnset() {
   return !p || p === 'auto'
 }
 
+/** When TTS_PROVIDER=gemini, allow OpenAI on any Gemini failure (not only 429). */
+function openAiFallbackOnAnyGeminiErrorEnabled() {
+  const v = process.env.TTS_FALLBACK_ON_ERROR?.trim().toLowerCase()
+  if (!v) return false
+  return (
+    v === 'openai' ||
+    v === '1' ||
+    v === 'true' ||
+    v === 'yes' ||
+    v === 'on'
+  )
+}
+
 /**
  * @template T
  * @param {number} ms
@@ -83,11 +96,12 @@ export async function synthesizeNeuralSpeech(text) {
   } catch (e) {
     const hasOpenai = Boolean(process.env.OPENAI_API_KEY?.trim())
     const explicitGemini = process.env.TTS_PROVIDER?.trim().toLowerCase() === 'gemini'
-    const geminiQuota =
-      e?.code === 'GEMINI_TTS_QUOTA' || e?.status === 429
+    const geminiQuota = e?.code === 'GEMINI_TTS_QUOTA' || e?.status === 429
     const useOpenAiFallback =
       hasOpenai &&
-      (ttsProviderIsAutoOrUnset() || (explicitGemini && geminiQuota))
+      (ttsProviderIsAutoOrUnset() ||
+        (explicitGemini && geminiQuota) ||
+        (explicitGemini && openAiFallbackOnAnyGeminiErrorEnabled()))
     if (useOpenAiFallback) {
       console.warn('[neural TTS] Gemini TTS failed; using OpenAI fallback.', e?.message ?? e)
       const buffer = await synthesizeSpeechToMp3(text)

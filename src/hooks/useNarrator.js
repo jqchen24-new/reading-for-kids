@@ -1,6 +1,43 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { isIOSLikeDevice } from '../lib/platform.js'
 import { pickVoiceForNarration } from '../lib/pickSpeechVoice.js'
+import { getTtsNeuralCache, setTtsNeuralCache } from '../lib/ttsNeuralCache.js'
+
+/**
+ * @param {string} text
+ * @param {AbortSignal} signal
+ * @returns {Promise<{ ab: ArrayBuffer, mime: string } | null>}
+ */
+async function fetchNeuralTtsWithRetry(text, signal) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+      signal,
+    })
+    const ctRaw = res.headers.get('content-type') ?? ''
+    const ct = ctRaw.toLowerCase()
+    if (res.ok) {
+      const blob = await res.blob()
+      const looksLikeJsonError = ct.includes('application/json')
+      if (blob.size >= 64 && !looksLikeJsonError) {
+        const mimeFromHeader =
+          ctRaw.split(';')[0].trim() || blob.type || 'audio/mpeg'
+        const ab = await blob.arrayBuffer()
+        return { ab, mime: mimeFromHeader }
+      }
+    }
+    const transient =
+      res.status === 429 || res.status === 500 || res.status === 502 || res.status === 503
+    if (attempt === 0 && transient && !signal.aborted) {
+      await new Promise((r) => setTimeout(r, 480))
+      continue
+    }
+    break
+  }
+  return null
+}
 
 /**
  * Read-aloud: prefers **neural TTS** via `POST /api/tts` (OpenAI or Gemini, server key) when configured,
@@ -98,21 +135,16 @@ export function useNarrator() {
 
     void (async () => {
       try {
-        const res = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: t }),
-          signal: ac.signal,
-        })
-        const ctRaw = res.headers.get('content-type') ?? ''
-        const ct = ctRaw.toLowerCase()
-        if (!res.ok || ct.includes('application/json')) return
-        const blob = await res.blob()
-        if (blob.size < 64 || ac.signal.aborted) return
-        const ab = await blob.arrayBuffer()
-        if (ac.signal.aborted) return
-        const mime = ctRaw.split(';')[0].trim() || blob.type || 'audio/mpeg'
-        prefetchedRef.current = { key: t, ab: ab.slice(0), mime }
+        const hit = getTtsNeuralCache(t)
+        if (hit?.ab?.byteLength >= 64) {
+          if (ac.signal.aborted) return
+          prefetchedRef.current = { key: t, ab: hit.ab.slice(0), mime: hit.mime }
+          return
+        }
+        const fetched = await fetchNeuralTtsWithRetry(t, ac.signal)
+        if (!fetched || ac.signal.aborted) return
+        prefetchedRef.current = { key: t, ab: fetched.ab.slice(0), mime: fetched.mime }
+        setTtsNeuralCache(t, fetched.ab.slice(0), fetched.mime)
       } catch {
         /* aborted or network */
       }
@@ -235,29 +267,23 @@ export function useNarrator() {
 
         if (speakGenRef.current !== myGen) return
 
-        abortRef.current = new AbortController()
-        const res = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: t }),
-          signal: abortRef.current.signal,
-        })
+        const disk = getTtsNeuralCache(t)
+        if (disk?.ab?.byteLength >= 64) {
+          const ok = await tryPlayNeuralAb(disk.ab.slice(0), disk.mime)
+          if (ok && speakGenRef.current === myGen) return
+        }
 
         if (speakGenRef.current !== myGen) return
 
-        const ctRaw = res.headers.get('content-type') ?? ''
-        const ct = ctRaw.toLowerCase()
-        if (res.ok) {
-          const blob = await res.blob()
-          const looksLikeJsonError = ct.includes('application/json')
-          if (blob.size >= 64 && !looksLikeJsonError) {
-            const mimeFromHeader =
-              ctRaw.split(';')[0].trim() || blob.type || 'audio/mpeg'
-            const ab = await blob.arrayBuffer()
-            if (speakGenRef.current !== myGen) return
-            const ok = await tryPlayNeuralAb(ab, mimeFromHeader)
-            if (ok && speakGenRef.current === myGen) return
-          }
+        abortRef.current = new AbortController()
+        const fetched = await fetchNeuralTtsWithRetry(t, abortRef.current.signal)
+
+        if (speakGenRef.current !== myGen) return
+
+        if (fetched && fetched.ab.byteLength >= 64) {
+          setTtsNeuralCache(t, fetched.ab.slice(0), fetched.mime)
+          const ok = await tryPlayNeuralAb(fetched.ab.slice(0), fetched.mime)
+          if (ok && speakGenRef.current === myGen) return
         }
       } catch (e) {
         if (e?.name === 'AbortError') {
