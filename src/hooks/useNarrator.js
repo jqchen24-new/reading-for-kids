@@ -193,7 +193,10 @@ export function useNarrator() {
     prefetchedRef.current = null
     cleanupAudio()
     if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel()
+      const synth = window.speechSynthesis
+      if (synth.speaking || synth.pending) {
+        synth.cancel()
+      }
     }
     setStatus('idle')
     setActiveSentenceIndex(-1)
@@ -259,8 +262,13 @@ export function useNarrator() {
       prefetchAbortRef.current = null
 
       cleanupAudio()
+      let synthWasActive = false
       if (window.speechSynthesis) {
-        window.speechSynthesis.cancel()
+        const synth = window.speechSynthesis
+        if (synth.speaking || synth.pending) {
+          synthWasActive = true
+          synth.cancel()
+        }
       }
 
       sentencesRef.current = splitNarrationSentences(t)
@@ -270,7 +278,7 @@ export function useNarrator() {
       if (replayCached) {
         primePlaybackFromGesture()
       }
-      setStatus(replayCached ? 'playing' : quotaPaused ? 'idle' : 'loading')
+      setStatus('loading')
 
       const bindHtmlAudioPlayback = (audio) => {
         const audioGen = myGen
@@ -567,6 +575,9 @@ export function useNarrator() {
 
       if (iosSpeechGestureOnly) {
         runSpeak()
+      } else if (synthWasActive) {
+        /* Chrome/Safari: synth.cancel() then immediate speak() can hang the engine for seconds. */
+        window.setTimeout(runSpeak, 80)
       } else {
         queueMicrotask(runSpeak)
       }
