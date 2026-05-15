@@ -290,16 +290,18 @@ export default function App() {
 
   const goStoryBack = useCallback(() => {
     if (!canGoStoryBack) return
+    primePlaybackFromGesture()
     stop()
     setPageIndex((i) => Math.max(0, i - 1))
-  }, [canGoStoryBack, stop])
+  }, [canGoStoryBack, stop, primePlaybackFromGesture])
 
   const goStoryForward = useCallback(() => {
     if (!canGoStoryForward) return
+    primePlaybackFromGesture()
     stop()
     const max = storyPagesRef.current.length - 1
     setPageIndex((i) => Math.min(max, i + 1))
-  }, [canGoStoryForward, stop])
+  }, [canGoStoryForward, stop, primePlaybackFromGesture])
 
   const goHome = useCallback(() => {
     illustrationsOffRef.current = false

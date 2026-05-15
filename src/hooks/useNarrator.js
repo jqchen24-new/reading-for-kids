@@ -7,12 +7,16 @@ import {
 } from '../lib/narrationSentences.js'
 import { pickVoiceForNarration } from '../lib/pickSpeechVoice.js'
 import {
+  getTtsHtmlAudio,
   getTtsNeuralCache,
   getTtsObjectUrl,
   hasTtsNeuralCache,
+  isCachedHtmlAudioElement,
   isCachedTtsObjectUrl,
   predecodeTtsBuffer,
+  prepareCachedHtmlAudio,
   setTtsNeuralCache,
+  waitForCachedAudioReady,
 } from '../lib/ttsNeuralCache.js'
 
 /**
@@ -119,12 +123,17 @@ export function useNarrator() {
     abortRef.current = null
     stopNeuralWebAudio()
     if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current.removeAttribute('src')
-      audioRef.current.load()
-      audioRef.current.ontimeupdate = null
-      audioRef.current.onended = null
-      audioRef.current.onerror = null
+      const audio = audioRef.current
+      audio.pause()
+      if (isCachedHtmlAudioElement(audio)) {
+        audio.currentTime = 0
+      } else {
+        audio.removeAttribute('src')
+        audio.load()
+      }
+      audio.ontimeupdate = null
+      audio.onended = null
+      audio.onerror = null
       audioRef.current = null
     }
     if (objectUrlRef.current) {
@@ -183,6 +192,7 @@ export function useNarrator() {
           if (ac.signal.aborted) return
           prefetchedRef.current = { key: t, ab: hit.ab.slice(0), mime: hit.mime }
           getTtsObjectUrl(t)
+          void prepareCachedHtmlAudio(t)
           const ctx = audioContextRef.current
           if (ctx) predecodeTtsBuffer(t, ctx)
           return
@@ -193,6 +203,7 @@ export function useNarrator() {
         setTtsNeuralCache(t, fetched.ab.slice(0), fetched.mime)
         const ctx = audioContextRef.current
         if (ctx) predecodeTtsBuffer(t, ctx)
+        void prepareCachedHtmlAudio(t)
       } catch {
         /* aborted or network */
       }
@@ -230,35 +241,26 @@ export function useNarrator() {
       sentencesRef.current = splitNarrationSentences(t)
       setActiveSentenceIndex(-1)
       const replayCached = hasTtsNeuralCache(t)
+      if (replayCached) {
+        primePlaybackFromGesture()
+      }
       setStatus(replayCached ? 'playing' : 'loading')
 
-      const playWithHtmlAudio = async (url) => {
-        if (speakGenRef.current !== myGen) return false
-
-        objectUrlRef.current = url
-
-        const audio = new Audio()
-        try {
-          audio.setAttribute('playsinline', '')
-          audio.playsInline = true
-        } catch {
-          /* ignore */
-        }
-        audio.volume = 1
-        audio.src = url
-        audio.preload = 'auto'
-        audioRef.current = audio
-
+      const bindHtmlAudioPlayback = (audio) => {
         const audioGen = myGen
         audio.onended = () => {
-          cleanupAudio()
+          if (audioRef.current === audio) {
+            audioRef.current = null
+          }
           if (speakGenRef.current === audioGen) {
             setStatus('idle')
             setActiveSentenceIndex(-1)
           }
         }
         audio.onerror = () => {
-          cleanupAudio()
+          if (audioRef.current === audio) {
+            audioRef.current = null
+          }
           if (speakGenRef.current === audioGen) {
             setStatus('idle')
             setActiveSentenceIndex(-1)
@@ -270,15 +272,40 @@ export function useNarrator() {
           if (!Number.isFinite(dur) || dur <= 0) return
           updateActiveFromRatio(audio.currentTime / dur)
         }
+      }
+
+      const playHtmlAudioElement = async (audio, urlForRef) => {
+        if (speakGenRef.current !== myGen) return false
+
+        objectUrlRef.current = urlForRef ?? audio.src ?? null
+        audioRef.current = audio
+        bindHtmlAudioPlayback(audio)
 
         try {
+          audio.currentTime = 0
           setStatus('playing')
           await audio.play()
           return speakGenRef.current === myGen
         } catch {
-          cleanupAudio()
+          if (audioRef.current === audio) {
+            audioRef.current = null
+          }
           return false
         }
+      }
+
+      const playWithHtmlAudio = async (url) => {
+        const audio = new Audio()
+        try {
+          audio.setAttribute('playsinline', '')
+          audio.playsInline = true
+        } catch {
+          /* ignore */
+        }
+        audio.volume = 1
+        audio.src = url
+        audio.preload = 'auto'
+        return playHtmlAudioElement(audio, url)
       }
 
       const tryPlayFromBufferSource = async (audioBuffer) => {
@@ -331,31 +358,15 @@ export function useNarrator() {
       /**
        * @param {ArrayBuffer} ab
        * @param {string} mimeFromHeader
-       * @param {{ fastReplay?: boolean }} [opts]
        */
-      const tryPlayNeuralAb = async (ab, mimeFromHeader, opts = {}) => {
+      const tryPlayNeuralAb = async (ab, mimeFromHeader) => {
         if (speakGenRef.current !== myGen) return false
 
         prefetchedRef.current = { key: t, ab: ab.slice(0), mime: mimeFromHeader }
 
         const entry = getTtsNeuralCache(t)
-        const fastReplay = Boolean(opts.fastReplay)
-
-        if (fastReplay && entry?.audioBuffer) {
-          const ok = await tryPlayFromBufferSource(entry.audioBuffer)
-          if (ok) return true
-        }
-
-        if (fastReplay) {
-          const url = getTtsObjectUrl(t)
-          if (url) {
-            const ok = await playWithHtmlAudio(url)
-            if (ok) return true
-          }
-        }
-
         const ctx = audioContextRef.current
-        if (ctx && ctx.state !== 'closed' && !fastReplay) {
+        if (ctx && ctx.state !== 'closed') {
           if (ctx.state === 'suspended') {
             try {
               await ctx.resume()
@@ -390,22 +401,46 @@ export function useNarrator() {
         return playWithHtmlAudio(url)
       }
 
-      try {
-        const cached = prefetchedRef.current
-        if (cached?.key === t && cached.ab.byteLength >= 64) {
-          const ok = await tryPlayNeuralAb(cached.ab.slice(0), cached.mime, {
-            fastReplay: replayCached,
-          })
-          if (ok && speakGenRef.current === myGen) return
+      const tryPlayFromCache = async () => {
+        const entry = getTtsNeuralCache(t)
+        if (!entry?.ab || entry.ab.byteLength < 64) return false
+
+        prefetchedRef.current = { key: t, ab: entry.ab.slice(0), mime: entry.mime }
+
+        if (entry.audioBuffer) {
+          const ok = await tryPlayFromBufferSource(entry.audioBuffer)
+          if (ok) return true
         }
 
-        if (speakGenRef.current !== myGen) return
+        const cachedAudio = getTtsHtmlAudio(t)
+        if (cachedAudio) {
+          if (cachedAudio.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+            await waitForCachedAudioReady(cachedAudio, 2500)
+          }
+          const url = entry.objectUrl ?? cachedAudio.src
+          const ok = await playHtmlAudioElement(cachedAudio, url)
+          if (ok) return true
+        }
 
-        const disk = getTtsNeuralCache(t)
-        if (disk?.ab?.byteLength >= 64) {
-          const ok = await tryPlayNeuralAb(disk.ab.slice(0), disk.mime, {
-            fastReplay: true,
-          })
+        const url = getTtsObjectUrl(t)
+        if (url) {
+          return playWithHtmlAudio(url)
+        }
+        return false
+      }
+
+      try {
+        if (replayCached) {
+          const ok = await tryPlayFromCache()
+          if (ok && speakGenRef.current === myGen) return
+          if (speakGenRef.current !== myGen) return
+          setStatus('idle')
+          return
+        }
+
+        const cached = prefetchedRef.current
+        if (cached?.key === t && cached.ab.byteLength >= 64) {
+          const ok = await tryPlayNeuralAb(cached.ab.slice(0), cached.mime)
           if (ok && speakGenRef.current === myGen) return
         }
 
@@ -420,6 +455,7 @@ export function useNarrator() {
           setTtsNeuralCache(t, fetched.ab.slice(0), fetched.mime)
           const ctx = audioContextRef.current
           if (ctx) predecodeTtsBuffer(t, ctx)
+          void prepareCachedHtmlAudio(t)
           const ok = await tryPlayNeuralAb(fetched.ab.slice(0), fetched.mime)
           if (ok && speakGenRef.current === myGen) return
         }
@@ -514,6 +550,7 @@ export function useNarrator() {
       stopNeuralWebAudio,
       updateActiveFromCharPos,
       updateActiveFromRatio,
+      primePlaybackFromGesture,
     ],
   )
 

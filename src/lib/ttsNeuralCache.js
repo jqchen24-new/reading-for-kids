@@ -1,6 +1,6 @@
 /**
  * Neural TTS cache: in-memory (instant replay) + sessionStorage (survives refresh in-tab).
- * Keys are derived from narration text. Reuses blob URLs so replay skips decode + base64 work.
+ * Keeps decoded buffers and a preloaded HTMLAudioElement so replay skips API + decode.
  */
 
 const INDEX_KEY = 'rff-tts-v1-index'
@@ -8,7 +8,17 @@ const ENTRY_PREFIX = 'rff-tts-v1:'
 const MAX_ENTRIES = 24
 const MAX_BYTES_TO_CACHE = 750_000
 
-/** @type {Map<string, { ab: ArrayBuffer, mime: string, objectUrl?: string, audioBuffer?: AudioBuffer }>} */
+/**
+ * @typedef {{
+ *   ab: ArrayBuffer,
+ *   mime: string,
+ *   objectUrl?: string,
+ *   audioBuffer?: AudioBuffer,
+ *   htmlAudio?: HTMLAudioElement,
+ * }} TtsCacheEntry
+ */
+
+/** @type {Map<string, TtsCacheEntry>} */
 const memory = new Map()
 
 /**
@@ -72,6 +82,16 @@ function writeIndex(keys) {
 }
 
 function removeEntry(storageKey) {
+  const entry = memory.get(storageKey)
+  if (entry?.htmlAudio) {
+    try {
+      entry.htmlAudio.pause()
+      entry.htmlAudio.removeAttribute('src')
+      entry.htmlAudio.load()
+    } catch {
+      /* ignore */
+    }
+  }
   memory.delete(storageKey)
   try {
     sessionStorage.removeItem(storageKey)
@@ -137,6 +157,68 @@ function writeSessionEntry(key, entry) {
 }
 
 /**
+ * @param {TtsCacheEntry} entry
+ */
+function ensureObjectUrl(entry) {
+  if (!entry.objectUrl) {
+    entry.objectUrl = URL.createObjectURL(new Blob([entry.ab], { type: entry.mime }))
+  }
+  return entry.objectUrl
+}
+
+/**
+ * @param {TtsCacheEntry} entry
+ * @returns {HTMLAudioElement}
+ */
+function ensureHtmlAudio(entry) {
+  if (entry.htmlAudio) return entry.htmlAudio
+  const url = ensureObjectUrl(entry)
+  const audio = new Audio()
+  try {
+    audio.setAttribute('playsinline', '')
+    audio.playsInline = true
+  } catch {
+    /* ignore */
+  }
+  audio.preload = 'auto'
+  audio.src = url
+  entry.htmlAudio = audio
+  return audio
+}
+
+/**
+ * @param {HTMLAudioElement} audio
+ * @param {number} timeoutMs
+ */
+export function waitForCachedAudioReady(audio, timeoutMs = 4000) {
+  if (audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    return Promise.resolve(true)
+  }
+  return new Promise((resolve) => {
+    const done = () => {
+      cleanup()
+      resolve(audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA)
+    }
+    const cleanup = () => {
+      clearTimeout(timer)
+      audio.removeEventListener('canplay', done)
+      audio.removeEventListener('loadeddata', done)
+    }
+    audio.addEventListener('canplay', done, { once: true })
+    audio.addEventListener('loadeddata', done, { once: true })
+    try {
+      audio.load()
+    } catch {
+      /* ignore */
+    }
+    const timer = setTimeout(() => {
+      cleanup()
+      resolve(audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA)
+    }, timeoutMs)
+  })
+}
+
+/**
  * @param {string} text
  * @returns {boolean}
  */
@@ -156,7 +238,7 @@ export function hasTtsNeuralCache(text) {
 
 /**
  * @param {string} text
- * @returns {{ ab: ArrayBuffer, mime: string, objectUrl?: string, audioBuffer?: AudioBuffer } | null}
+ * @returns {TtsCacheEntry | null}
  */
 export function getTtsNeuralCache(text) {
   const t = typeof text === 'string' ? text.trim() : ''
@@ -197,6 +279,7 @@ export function setTtsNeuralCache(text, ab, mime) {
 
   const entry = { ab: ab.slice(0), mime: mime || 'audio/mpeg' }
   memory.set(key, entry)
+  void prepareCachedHtmlAudio(t)
 
   const persist = () => writeSessionEntry(key, entry)
   if (typeof queueMicrotask !== 'undefined') {
@@ -207,17 +290,37 @@ export function setTtsNeuralCache(text, ab, mime) {
 }
 
 /**
- * Reused object URL for HTML Audio replay (do not revoke while cached).
  * @param {string} text
  * @returns {string | null}
  */
 export function getTtsObjectUrl(text) {
   const entry = getTtsNeuralCache(text)
   if (!entry) return null
-  if (!entry.objectUrl) {
-    entry.objectUrl = URL.createObjectURL(new Blob([entry.ab], { type: entry.mime }))
-  }
-  return entry.objectUrl
+  return ensureObjectUrl(entry)
+}
+
+/**
+ * @param {string} text
+ * @returns {HTMLAudioElement | null}
+ */
+export function getTtsHtmlAudio(text) {
+  const t = typeof text === 'string' ? text.trim() : ''
+  if (!t) return null
+  const entry = getTtsNeuralCache(t)
+  if (!entry) return null
+  return ensureHtmlAudio(entry)
+}
+
+/**
+ * @param {string} text
+ */
+export function prepareCachedHtmlAudio(text) {
+  const t = typeof text === 'string' ? text.trim() : ''
+  if (!t || typeof Audio === 'undefined') return Promise.resolve(false)
+  const entry = getTtsNeuralCache(t)
+  if (!entry) return Promise.resolve(false)
+  const audio = ensureHtmlAudio(entry, t)
+  return waitForCachedAudioReady(audio)
 }
 
 /**
@@ -227,6 +330,17 @@ export function isCachedTtsObjectUrl(url) {
   if (!url) return false
   for (const entry of memory.values()) {
     if (entry.objectUrl === url) return true
+  }
+  return false
+}
+
+/**
+ * @param {HTMLAudioElement | null | undefined} audio
+ */
+export function isCachedHtmlAudioElement(audio) {
+  if (!audio) return false
+  for (const entry of memory.values()) {
+    if (entry.htmlAudio === audio) return true
   }
   return false
 }
@@ -253,7 +367,6 @@ export function predecodeTtsBuffer(text, ctx) {
 }
 
 /**
- * Load session blobs into memory during idle time (e.g. when flipping pages).
  * @param {string[]} texts
  */
 export function warmTtsNeuralCaches(texts) {
@@ -265,11 +378,12 @@ export function warmTtsNeuralCaches(texts) {
   const run = () => {
     for (const t of list) {
       getTtsNeuralCache(t)
+      void prepareCachedHtmlAudio(t)
     }
   }
 
   if (typeof requestIdleCallback !== 'undefined') {
-    requestIdleCallback(run, { timeout: 600 })
+    requestIdleCallback(run, { timeout: 400 })
   } else {
     queueMicrotask(run)
   }
