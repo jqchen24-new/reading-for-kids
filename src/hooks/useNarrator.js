@@ -472,22 +472,20 @@ export function useNarrator() {
 
         if (speakGenRef.current !== myGen) return
 
-        if (quotaPaused) {
-          /* skip /api/tts — use Web Speech below */
-        } else {
-        abortRef.current = new AbortController()
-        const fetched = await fetchNeuralTtsWithRetry(t, abortRef.current.signal)
+        if (!quotaPaused) {
+          abortRef.current = new AbortController()
+          const fetched = await fetchNeuralTtsWithRetry(t, abortRef.current.signal)
 
-        if (speakGenRef.current !== myGen) return
+          if (speakGenRef.current !== myGen) return
 
-        if (fetched && fetched.ab.byteLength >= 64) {
-          setTtsNeuralCache(t, fetched.ab.slice(0), fetched.mime)
-          const ctx = audioContextRef.current
-          if (ctx) predecodeTtsBuffer(t, ctx)
-          void prepareCachedHtmlAudio(t)
-          const ok = await tryPlayNeuralAb(fetched.ab.slice(0), fetched.mime)
-          if (ok && speakGenRef.current === myGen) return
-        }
+          if (fetched && fetched.ab.byteLength >= 64) {
+            setTtsNeuralCache(t, fetched.ab.slice(0), fetched.mime)
+            const ctx = audioContextRef.current
+            if (ctx) predecodeTtsBuffer(t, ctx)
+            void prepareCachedHtmlAudio(t)
+            const ok = await tryPlayNeuralAb(fetched.ab.slice(0), fetched.mime)
+            if (ok && speakGenRef.current === myGen) return
+          }
         }
       } catch (e) {
         if (e?.name === 'AbortError') {
