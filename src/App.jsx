@@ -323,12 +323,13 @@ export default function App() {
   const playAgain = goHome
 
   const replayNarration = useCallback(() => {
+    stop()
     primePlaybackFromGesture()
     const text = currentScene?.narration?.trim()
     if (text) {
       speak(text)
     }
-  }, [currentScene, speak, primePlaybackFromGesture])
+  }, [currentScene, speak, stop, primePlaybackFromGesture])
 
   return (
     <div className="min-h-svh bg-gradient-to-b from-stone-900 via-stone-800 to-stone-900 text-stone-100">

@@ -102,6 +102,10 @@ export function useNarrator() {
   const abortRef = useRef(null)
   const audioContextRef = useRef(null)
   const bufferSourceRef = useRef(null)
+  /** Every live Web Audio buffer source (stop all on cleanup — ref alone can miss orphans). */
+  const activeBufferSourcesRef = useRef(/** @type {Set<AudioBufferSourceNode>} */ (new Set()))
+  /** Pending Web Speech start (setTimeout after synth.cancel). */
+  const speechDelayTimerRef = useRef(0)
   /** Cached neural response for instant replay / iOS prefetch. */
   const prefetchedRef = useRef(null)
   const prefetchAbortRef = useRef(null)
@@ -130,24 +134,36 @@ export function useNarrator() {
     setActiveSentenceIndex((prev) => (prev === idx ? prev : idx))
   }, [])
 
-  const stopNeuralWebAudio = useCallback(() => {
-    const src = bufferSourceRef.current
-    if (src) {
+  const stopAllBufferSources = useCallback(() => {
+    for (const src of activeBufferSourcesRef.current) {
       try {
         src.stop(0)
       } catch {
         /* already stopped */
       }
-      bufferSourceRef.current = null
+      try {
+        src.disconnect()
+      } catch {
+        /* ignore */
+      }
     }
+    activeBufferSourcesRef.current.clear()
+    bufferSourceRef.current = null
   }, [])
 
   const cleanupAudio = useCallback(() => {
+    if (speechDelayTimerRef.current) {
+      clearTimeout(speechDelayTimerRef.current)
+      speechDelayTimerRef.current = 0
+    }
     cancelSentenceTracking()
     abortRef.current?.abort()
     abortRef.current = null
-    stopNeuralWebAudio()
+    stopAllBufferSources()
     pauseAllTtsPlayback()
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel()
+    }
     const ctx = audioContextRef.current
     if (ctx && ctx.state === 'running') {
       void ctx.suspend()
@@ -172,7 +188,7 @@ export function useNarrator() {
       }
       objectUrlRef.current = null
     }
-  }, [cancelSentenceTracking, stopNeuralWebAudio])
+  }, [cancelSentenceTracking, stopAllBufferSources])
 
   /** Call synchronously from pointer/tap handlers so neural audio can play after async fetch. */
   const primePlaybackFromGesture = useCallback(() => {
@@ -198,12 +214,6 @@ export function useNarrator() {
     prefetchAbortRef.current = null
     prefetchedRef.current = null
     cleanupAudio()
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      const synth = window.speechSynthesis
-      if (synth.speaking || synth.pending) {
-        synth.cancel()
-      }
-    }
     setStatus('idle')
     setActiveSentenceIndex(-1)
   }, [cleanupAudio])
@@ -268,13 +278,11 @@ export function useNarrator() {
       prefetchAbortRef.current = null
 
       cleanupAudio()
-      let synthWasActive = false
+      let synthNeedsDelay = false
       if (window.speechSynthesis) {
         const synth = window.speechSynthesis
-        if (synth.speaking || synth.pending) {
-          synthWasActive = true
-          synth.cancel()
-        }
+        synthNeedsDelay = synth.speaking || synth.pending
+        synth.cancel()
       }
 
       sentencesRef.current = splitNarrationSentences(t)
@@ -316,6 +324,9 @@ export function useNarrator() {
 
       const playHtmlAudioElement = async (audio, urlForRef) => {
         if (speakGenRef.current !== myGen) return false
+
+        stopAllBufferSources()
+        pauseAllTtsPlayback()
 
         objectUrlRef.current = urlForRef ?? audio.src ?? null
         audioRef.current = audio
@@ -361,12 +372,17 @@ export function useNarrator() {
         if (ctx.state !== 'running') return false
 
         try {
+          stopAllBufferSources()
+          pauseAllTtsPlayback()
+
           const source = ctx.createBufferSource()
           bufferSourceRef.current = source
+          activeBufferSourcesRef.current.add(source)
           source.buffer = audioBuffer
           source.connect(ctx.destination)
           const sourceGen = myGen
           source.onended = () => {
+            activeBufferSourcesRef.current.delete(source)
             bufferSourceRef.current = null
             cancelSentenceTracking()
             if (speakGenRef.current === sourceGen) {
@@ -390,7 +406,7 @@ export function useNarrator() {
           rafIdRef.current = requestAnimationFrame(tick)
           return true
         } catch {
-          stopNeuralWebAudio()
+          stopAllBufferSources()
           return false
         }
       }
@@ -428,7 +444,7 @@ export function useNarrator() {
               const ok = await tryPlayFromBufferSource(audioBuffer)
               if (ok) return true
             } catch {
-              stopNeuralWebAudio()
+              stopAllBufferSources()
             }
           }
         }
@@ -447,18 +463,19 @@ export function useNarrator() {
 
         prefetchedRef.current = { key: t, ab: entry.ab.slice(0), mime: entry.mime }
 
-        if (entry.audioBuffer) {
-          const ok = await tryPlayFromBufferSource(entry.audioBuffer)
-          if (ok) return true
-        }
-
         const cachedAudio = getTtsHtmlAudio(t)
         if (cachedAudio) {
           if (cachedAudio.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
             await waitForCachedAudioReady(cachedAudio, 2500)
           }
+          if (speakGenRef.current !== myGen) return false
           const url = entry.objectUrl ?? cachedAudio.src
           const ok = await playHtmlAudioElement(cachedAudio, url)
+          if (ok) return true
+        }
+
+        if (entry.audioBuffer) {
+          const ok = await tryPlayFromBufferSource(entry.audioBuffer)
           if (ok) return true
         }
 
@@ -581,9 +598,12 @@ export function useNarrator() {
 
       if (iosSpeechGestureOnly) {
         runSpeak()
-      } else if (synthWasActive) {
+      } else if (synthNeedsDelay) {
         /* Chrome/Safari: synth.cancel() then immediate speak() can hang the engine for seconds. */
-        window.setTimeout(runSpeak, 80)
+        speechDelayTimerRef.current = window.setTimeout(() => {
+          speechDelayTimerRef.current = 0
+          runSpeak()
+        }, 80)
       } else {
         queueMicrotask(runSpeak)
       }
@@ -592,7 +612,7 @@ export function useNarrator() {
       cancelSentenceTracking,
       cleanupAudio,
       iosSpeechGestureOnly,
-      stopNeuralWebAudio,
+      stopAllBufferSources,
       updateActiveFromCharPos,
       updateActiveFromRatio,
       primePlaybackFromGesture,
