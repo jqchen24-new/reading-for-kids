@@ -18,6 +18,10 @@ import {
   setTtsNeuralCache,
   waitForCachedAudioReady,
 } from '../lib/ttsNeuralCache.js'
+import {
+  isNeuralTtsQuotaPaused,
+  markNeuralTtsQuotaPaused,
+} from '../lib/ttsQuotaPause.js'
 
 /**
  * @param {string} text
@@ -25,6 +29,10 @@ import {
  * @returns {Promise<{ ab: ArrayBuffer, mime: string } | null>}
  */
 async function fetchNeuralTtsWithRetry(text, signal) {
+  if (isNeuralTtsQuotaPaused()) {
+    return null
+  }
+
   for (let attempt = 0; attempt < 2; attempt++) {
     const res = await fetch('/api/tts', {
       method: 'POST',
@@ -44,8 +52,24 @@ async function fetchNeuralTtsWithRetry(text, signal) {
         return { ab, mime: mimeFromHeader }
       }
     }
+
+    let errorCode = ''
+    if (ct.includes('application/json')) {
+      try {
+        const j = await res.json()
+        if (typeof j?.code === 'string') errorCode = j.code
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (errorCode === 'TTS_QUOTA_EXHAUSTED' || res.status === 503) {
+      markNeuralTtsQuotaPaused()
+      return null
+    }
+
     const transient =
-      res.status === 429 || res.status === 500 || res.status === 502 || res.status === 503
+      res.status === 500 || res.status === 502
     if (attempt === 0 && transient && !signal.aborted) {
       await new Promise((r) => setTimeout(r, 480))
       continue
@@ -178,6 +202,7 @@ export function useNarrator() {
   /** Warm `/api/tts` while the user reads (iOS has no auto-speak). */
   const prefetchNarration = useCallback((text) => {
     if (typeof window === 'undefined') return
+    if (isNeuralTtsQuotaPaused()) return
     const t = typeof text === 'string' ? text.trim() : ''
     if (!t) return
 
@@ -241,10 +266,11 @@ export function useNarrator() {
       sentencesRef.current = splitNarrationSentences(t)
       setActiveSentenceIndex(-1)
       const replayCached = hasTtsNeuralCache(t)
+      const quotaPaused = isNeuralTtsQuotaPaused()
       if (replayCached) {
         primePlaybackFromGesture()
       }
-      setStatus(replayCached ? 'playing' : 'loading')
+      setStatus(replayCached ? 'playing' : quotaPaused ? 'idle' : 'loading')
 
       const bindHtmlAudioPlayback = (audio) => {
         const audioGen = myGen
@@ -446,6 +472,9 @@ export function useNarrator() {
 
         if (speakGenRef.current !== myGen) return
 
+        if (quotaPaused) {
+          /* skip /api/tts — use Web Speech below */
+        } else {
         abortRef.current = new AbortController()
         const fetched = await fetchNeuralTtsWithRetry(t, abortRef.current.signal)
 
@@ -458,6 +487,7 @@ export function useNarrator() {
           void prepareCachedHtmlAudio(t)
           const ok = await tryPlayNeuralAb(fetched.ab.slice(0), fetched.mime)
           if (ok && speakGenRef.current === myGen) return
+        }
         }
       } catch (e) {
         if (e?.name === 'AbortError') {

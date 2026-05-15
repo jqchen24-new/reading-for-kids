@@ -44,7 +44,10 @@ export async function synthesizeSpeechToMp3(text) {
     const body = await res.text()
     const err = new Error(body || `OpenAI TTS HTTP ${res.status}`)
     err.status = res.status
-    err.code = 'OPENAI_TTS_ERROR'
+    err.code =
+      res.status === 429 || /insufficient_quota|exceeded your current quota/i.test(body)
+        ? 'OPENAI_TTS_QUOTA'
+        : 'OPENAI_TTS_ERROR'
     throw err
   }
 

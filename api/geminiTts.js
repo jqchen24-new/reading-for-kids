@@ -1,4 +1,5 @@
 import { readGeminiApiKeyFromEnv } from './geminiApiKey.js'
+import { isGeminiQuotaResponse } from './ttsQuotaCircuit.js'
 
 const TRANSIENT_GEMINI_HTTP = new Set([429, 500, 502, 503])
 
@@ -110,7 +111,14 @@ async function generateGeminiTtsBuffer(model, clipped, voiceName, apiKey) {
       rawText = await res.text()
       if (res.ok) break
 
-      const transient = TRANSIENT_GEMINI_HTTP.has(res.status)
+      if (isGeminiQuotaResponse(res.status, rawText)) {
+        const err = new Error(geminiHttpErrorMessage(res, rawText))
+        err.status = res.status
+        err.code = 'GEMINI_TTS_QUOTA'
+        throw err
+      }
+
+      const transient = TRANSIENT_GEMINI_HTTP.has(res.status) && res.status !== 429
       if (transient && httpTry < httpRetries - 1) {
         const backoff = 400 * 2 ** httpTry + Math.floor(Math.random() * 180)
         await sleep(backoff)

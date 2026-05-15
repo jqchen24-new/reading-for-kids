@@ -83,6 +83,14 @@ export default async function handler(req, res) {
       sendJson(res, 503, { error: 'Neural narration is not configured.', code: err.code })
       return
     }
+    if (err?.code === 'TTS_QUOTA_EXHAUSTED') {
+      sendJson(res, 503, {
+        error:
+          'Neural voice is temporarily unavailable (API quota). The app will use your browser voice instead.',
+        code: 'TTS_QUOTA_EXHAUSTED',
+      })
+      return
+    }
     console.error('[api/tts]', err)
     sendJson(res, 502, { error: 'Could not generate speech.', code: 'TTS_FAILED' })
   }

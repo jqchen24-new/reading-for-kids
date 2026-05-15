@@ -2,6 +2,11 @@ import { readGeminiApiKeyFromEnv } from './geminiApiKey.js'
 import { synthesizeSpeechToWav } from './geminiTts.js'
 import { synthesizeSpeechToMp3 } from './openaiTts.js'
 import { resolveNeuralTtsProvider } from './resolveNeuralTts.js'
+import {
+  isOpenAiInsufficientQuotaError,
+  isOpenAiQuotaBlocked,
+  markOpenAiQuotaBlocked,
+} from './ttsQuotaCircuit.js'
 
 function ttsProviderIsAutoOrUnset() {
   const p = process.env.TTS_PROVIDER?.trim().toLowerCase()
@@ -103,9 +108,33 @@ export async function synthesizeNeuralSpeech(text) {
         (explicitGemini && geminiQuota) ||
         (explicitGemini && openAiFallbackOnAnyGeminiErrorEnabled()))
     if (useOpenAiFallback) {
+      if (isOpenAiQuotaBlocked()) {
+        const err = new Error(
+          'Neural TTS quota exhausted (Gemini rate limit and OpenAI billing).',
+        )
+        err.code = 'TTS_QUOTA_EXHAUSTED'
+        throw err
+      }
       console.warn('[neural TTS] Gemini TTS failed; using OpenAI fallback.', e?.message ?? e)
-      const buffer = await synthesizeSpeechToMp3(text)
-      return { buffer, contentType: 'audio/mpeg' }
+      try {
+        const buffer = await synthesizeSpeechToMp3(text)
+        return { buffer, contentType: 'audio/mpeg' }
+      } catch (openAiErr) {
+        if (isOpenAiInsufficientQuotaError(openAiErr)) {
+          markOpenAiQuotaBlocked()
+          const err = new Error(
+            'Neural TTS quota exhausted (Gemini and OpenAI).',
+          )
+          err.code = 'TTS_QUOTA_EXHAUSTED'
+          throw err
+        }
+        throw openAiErr
+      }
+    }
+    if (geminiQuota) {
+      const err = new Error('Gemini TTS rate limit / quota exceeded.')
+      err.code = 'TTS_QUOTA_EXHAUSTED'
+      throw err
     }
     throw e
   }
