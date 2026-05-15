@@ -1,9 +1,88 @@
 /**
+ * @param {string} t full narration
+ * @param {number} i index of '.' '!' '?' or '…'
+ */
+function isRealSentenceEnd(t, i) {
+  const c = t[i]
+  if (c !== '.') return true
+  if (i > 0 && i + 1 < t.length && /\d/.test(t[i - 1]) && /\d/.test(t[i + 1])) {
+    return false
+  }
+  if (i + 1 < t.length && /[A-Za-z]/.test(t[i + 1])) {
+    return false
+  }
+  let a = i - 1
+  while (a >= 0 && /[A-Za-z'\u2019]/.test(t[a])) a--
+  const word = t
+    .slice(a + 1, i)
+    .replace(/[''\u2019]/g, '')
+    .toLowerCase()
+  if (word && ABBREVIATION_BEFORE_PERIOD.has(word)) {
+    return false
+  }
+  return true
+}
+
+/** Lowercase words where a trailing period is not end-of-sentence (e.g. Mrs. Smith). */
+const ABBREVIATION_BEFORE_PERIOD = new Set([
+  'mr',
+  'mrs',
+  'ms',
+  'mss',
+  'dr',
+  'prof',
+  'sr',
+  'jr',
+  'vs',
+  'st',
+  'ave',
+  'blvd',
+  'mt',
+  'ft',
+  'approx',
+  'vol',
+  'ed',
+  'rev',
+  'gen',
+  'col',
+  'sen',
+  'rep',
+  'fig',
+  'hon',
+  'messrs',
+  'mme',
+  'mlle',
+  'esq',
+  'phd',
+  'md',
+  'bvm',
+  'rsvp',
+  'dept',
+  'dist',
+  'jan',
+  'feb',
+  'mar',
+  'apr',
+  'jun',
+  'jul',
+  'aug',
+  'sep',
+  'sept',
+  'oct',
+  'nov',
+  'dec',
+])
+
+/**
  * Split narration text into sentence-sized spans with character offsets so the UI
  * can render each as its own <span> and highlight the active one during read-aloud.
  *
  * Each entry includes any trailing whitespace, so concatenating `text` for every
  * entry reproduces the original input (modulo never-matched empty input).
+ *
+ * Periods after common abbreviations (Mrs., Dr., …) are not treated as sentence ends,
+ * so highlighting does not break mid-sentence. "e.g." / "i.e." are handled by treating
+ * a period followed immediately by a letter as non-terminal.
  *
  * @param {string} text
  * @returns {Array<{ text: string, start: number, end: number }>}
@@ -19,6 +98,9 @@ export function splitNarrationSentences(text) {
   for (let i = 0; i < t.length; i++) {
     const c = t[i]
     if (c === '.' || c === '!' || c === '?' || c === '…') {
+      if (c === '.' && !isRealSentenceEnd(t, i)) {
+        continue
+      }
       let j = i
       while (j + 1 < t.length && isSentenceTerminator(t[j + 1])) j++
       let k = j + 1
