@@ -278,7 +278,7 @@ export function useNarrator() {
       if (replayCached) {
         primePlaybackFromGesture()
       }
-      setStatus('loading')
+      setStatus(replayCached ? 'playing' : 'loading')
 
       const bindHtmlAudioPlayback = (audio) => {
         const audioGen = myGen
@@ -468,8 +468,8 @@ export function useNarrator() {
           const ok = await tryPlayFromCache()
           if (ok && speakGenRef.current === myGen) return
           if (speakGenRef.current !== myGen) return
-          setStatus('idle')
-          return
+          /* Fall through to fetch/Web Speech instead of going silent. */
+          setStatus('loading')
         }
 
         const cached = prefetchedRef.current
