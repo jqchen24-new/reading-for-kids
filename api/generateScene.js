@@ -1,5 +1,4 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { jsonSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/json-schema.mjs'
 import { parseHeroGender, heroGenderNarrationRule } from './heroGender.js'
 import { parseEstablishedIllustrationCast } from './illustrationCastPrompt.js'
 import {
@@ -43,7 +42,11 @@ const SCENE_OUTPUT_JSON_SCHEMA = {
   },
 }
 
-const sceneStructuredOutputFormat = jsonSchemaOutputFormat(SCENE_OUTPUT_JSON_SCHEMA)
+/** Plain schema format (no helpers/json-schema.mjs — avoids Vercel import issues). */
+const SCENE_OUTPUT_FORMAT = {
+  type: 'json_schema',
+  schema: SCENE_OUTPUT_JSON_SCHEMA,
+}
 
 const SYSTEM_PROMPT = `You are a children's story narrator for ages 7–9. You write in a warm, exciting, age-appropriate voice. Each scene should be 3–5 sentences. Keep peril mild and safe; no graphic violence, no romance, no profanity. The named hero is always the protagonist.
 
@@ -183,9 +186,20 @@ Rules for "illustrationCast":
 If this is the final scene, use "choices": [] and "isEnding": true (illustrationCast may still list who appears in the ending).`
 }
 
+/** @param {{ content?: Array<{ type?: string, text?: string }> }} message */
+function extractAssistantText(message) {
+  const textParts =
+    message.content
+      ?.filter((b) => b.type === 'text')
+      .map((b) => (b.type === 'text' ? b.text : ''))
+      .filter(Boolean) ?? []
+  return textParts.join('\n').trim()
+}
+
 /**
  * Calls Claude and returns a validated scene object.
  * Uses process.env.ANTHROPIC_API_KEY and optional process.env.ANTHROPIC_MODEL.
+ * Tries structured JSON output first; falls back to plain messages.create on failure.
  * @param {ReturnType<typeof normalizeStoryPayload>} payload
  */
 export async function generateStoryScene(payload) {
@@ -202,27 +216,38 @@ export async function generateStoryScene(payload) {
   const client = new Anthropic({ apiKey })
   const userContent = buildUserPrompt(payload)
 
-  const message = await client.messages.parse({
+  const requestBase = {
     model,
     max_tokens: 4096,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userContent }],
-    output_config: {
-      format: sceneStructuredOutputFormat,
-    },
-  })
-
-  if (message.parsed_output != null) {
-    return normalizeParsedSceneObject(message.parsed_output)
   }
 
-  const textParts =
-    message.content
-      ?.filter((b) => b.type === 'text')
-      .map((b) => (b.type === 'text' ? b.text : ''))
-      .filter(Boolean) ?? []
+  try {
+    const message = await client.messages.parse({
+      ...requestBase,
+      output_config: {
+        format: SCENE_OUTPUT_FORMAT,
+      },
+    })
 
-  const joined = textParts.join('\n').trim()
+    if (message.parsed_output != null) {
+      return normalizeParsedSceneObject(message.parsed_output)
+    }
+
+    const joined = extractAssistantText(message)
+    if (joined) {
+      return parseSceneFromModelText(joined)
+    }
+  } catch (structuredErr) {
+    console.warn(
+      '[generateScene] structured output failed; retrying with messages.create',
+      structuredErr instanceof Error ? structuredErr.message : structuredErr,
+    )
+  }
+
+  const message = await client.messages.create(requestBase)
+  const joined = extractAssistantText(message)
   if (!joined) {
     throw new Error('No text content in model response')
   }

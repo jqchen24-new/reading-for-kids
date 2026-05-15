@@ -14,6 +14,21 @@ function sendJson(res, statusCode, obj) {
  * Anthropic key stays in process.env (Vercel env or local .env with vercel dev).
  */
 export default async function handler(req, res) {
+  try {
+    await handleStoryRequest(req, res)
+  } catch (fatal) {
+    console.error('[api/story] unhandled', fatal)
+    sendJson(res, 502, {
+      error:
+        'Story server hit an unexpected error. Check Vercel env vars (ANTHROPIC_API_KEY) and function logs.',
+      code: 'INTERNAL',
+      detail:
+        fatal instanceof Error ? fatal.message.slice(0, 280) : String(fatal).slice(0, 280),
+    })
+  }
+}
+
+async function handleStoryRequest(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')

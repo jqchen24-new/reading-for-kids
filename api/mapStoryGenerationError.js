@@ -1,4 +1,4 @@
-import { APIError } from '@anthropic-ai/sdk'
+import { APIError, AnthropicError } from '@anthropic-ai/sdk'
 
 const MAX_DETAIL = 280
 
@@ -44,6 +44,23 @@ export function mapStoryGenerationError(err) {
         error:
           'The story response was missing narration or choices. Try again in a moment.',
         code: 'PARSE_ERROR',
+        detail: e.message.slice(0, MAX_DETAIL),
+      },
+    }
+  }
+
+  if (
+    e.message.includes('timed out') ||
+    e.message.includes('Timeout') ||
+    e.code === 'ETIMEDOUT' ||
+    e.code === 'ECONNRESET'
+  ) {
+    return {
+      status: 502,
+      body: {
+        error:
+          'Story generation timed out. On Vercel Hobby, functions are limited to ~10s — upgrade or retry.',
+        code: 'TIMEOUT',
         detail: e.message.slice(0, MAX_DETAIL),
       },
     }
@@ -128,6 +145,17 @@ export function mapStoryGenerationError(err) {
         error: 'Could not generate the next scene. Try again in a moment.',
         code: 'API_ERROR',
         detail,
+      },
+    }
+  }
+
+  if (err instanceof AnthropicError) {
+    return {
+      status: 502,
+      body: {
+        error: 'Could not generate the next scene. Try again in a moment.',
+        code: 'API_ERROR',
+        detail: e.message.slice(0, MAX_DETAIL),
       },
     }
   }
