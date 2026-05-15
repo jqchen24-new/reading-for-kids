@@ -6,7 +6,12 @@
 const INDEX_KEY = 'rff-tts-v1-index'
 const ENTRY_PREFIX = 'rff-tts-v1:'
 const MAX_ENTRIES = 24
-const MAX_BYTES_TO_CACHE = 750_000
+/** sessionStorage cap (browser quota is ~5 MB total, base64 inflates ~4/3). */
+const MAX_BYTES_FOR_SESSION_STORAGE = 750_000
+/** In-memory cap per entry — keeps Gemini WAV (~1–2 MB) playable for instant replay. */
+const MAX_BYTES_IN_MEMORY = 8_000_000
+/** Hard ceiling: drop entries above this (very long narrations, runaway sizes). */
+const MAX_BYTES_TO_CACHE = MAX_BYTES_IN_MEMORY
 
 /**
  * @typedef {{
@@ -128,7 +133,7 @@ function readSessionEntry(key) {
 function writeSessionEntry(key, entry) {
   if (typeof sessionStorage === 'undefined') return
   const { ab, mime } = entry
-  if (ab.byteLength < 64 || ab.byteLength > MAX_BYTES_TO_CACHE) return
+  if (ab.byteLength < 64 || ab.byteLength > MAX_BYTES_FOR_SESSION_STORAGE) return
   let b64
   try {
     b64 = arrayBufferToBase64(ab.slice(0))
@@ -153,6 +158,32 @@ function writeSessionEntry(key, entry) {
     } catch {
       /* ignore */
     }
+  }
+}
+
+/** Evict oldest in-memory entries if Map grows beyond MAX_ENTRIES. */
+function trimMemoryCache() {
+  while (memory.size > MAX_ENTRIES) {
+    const oldest = memory.keys().next().value
+    if (!oldest) break
+    const entry = memory.get(oldest)
+    if (entry?.objectUrl) {
+      try {
+        URL.revokeObjectURL(entry.objectUrl)
+      } catch {
+        /* ignore */
+      }
+    }
+    if (entry?.htmlAudio) {
+      try {
+        entry.htmlAudio.pause()
+        entry.htmlAudio.removeAttribute('src')
+        entry.htmlAudio.load()
+      } catch {
+        /* ignore */
+      }
+    }
+    memory.delete(oldest)
   }
 }
 
@@ -279,13 +310,16 @@ export function setTtsNeuralCache(text, ab, mime) {
 
   const entry = { ab: ab.slice(0), mime: mime || 'audio/mpeg' }
   memory.set(key, entry)
+  trimMemoryCache()
   void prepareCachedHtmlAudio(t)
 
-  const persist = () => writeSessionEntry(key, entry)
-  if (typeof queueMicrotask !== 'undefined') {
-    queueMicrotask(persist)
-  } else {
-    persist()
+  if (ab.byteLength <= MAX_BYTES_FOR_SESSION_STORAGE) {
+    const persist = () => writeSessionEntry(key, entry)
+    if (typeof queueMicrotask !== 'undefined') {
+      queueMicrotask(persist)
+    } else {
+      persist()
+    }
   }
 }
 
