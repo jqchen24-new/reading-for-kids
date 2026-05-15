@@ -19,7 +19,6 @@ const SCENE_OUTPUT_JSON_SCHEMA = {
     },
     choices: {
       type: 'array',
-      maxItems: 2,
       items: {
         type: 'string',
         maxLength: 240,
@@ -28,7 +27,6 @@ const SCENE_OUTPUT_JSON_SCHEMA = {
     isEnding: { type: 'boolean' },
     illustrationCast: {
       type: 'array',
-      maxItems: 4,
       items: {
         type: 'object',
         additionalProperties: false,
