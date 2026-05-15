@@ -6,7 +6,14 @@ import {
   splitNarrationSentences,
 } from '../lib/narrationSentences.js'
 import { pickVoiceForNarration } from '../lib/pickSpeechVoice.js'
-import { getTtsNeuralCache, setTtsNeuralCache } from '../lib/ttsNeuralCache.js'
+import {
+  getTtsNeuralCache,
+  getTtsObjectUrl,
+  hasTtsNeuralCache,
+  isCachedTtsObjectUrl,
+  predecodeTtsBuffer,
+  setTtsNeuralCache,
+} from '../lib/ttsNeuralCache.js'
 
 /**
  * @param {string} text
@@ -121,7 +128,9 @@ export function useNarrator() {
       audioRef.current = null
     }
     if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current)
+      if (!isCachedTtsObjectUrl(objectUrlRef.current)) {
+        URL.revokeObjectURL(objectUrlRef.current)
+      }
       objectUrlRef.current = null
     }
   }, [cancelSentenceTracking, stopNeuralWebAudio])
@@ -173,12 +182,17 @@ export function useNarrator() {
         if (hit?.ab?.byteLength >= 64) {
           if (ac.signal.aborted) return
           prefetchedRef.current = { key: t, ab: hit.ab.slice(0), mime: hit.mime }
+          getTtsObjectUrl(t)
+          const ctx = audioContextRef.current
+          if (ctx) predecodeTtsBuffer(t, ctx)
           return
         }
         const fetched = await fetchNeuralTtsWithRetry(t, ac.signal)
         if (!fetched || ac.signal.aborted) return
         prefetchedRef.current = { key: t, ab: fetched.ab.slice(0), mime: fetched.mime }
         setTtsNeuralCache(t, fetched.ab.slice(0), fetched.mime)
+        const ctx = audioContextRef.current
+        if (ctx) predecodeTtsBuffer(t, ctx)
       } catch {
         /* aborted or network */
       }
@@ -215,66 +229,12 @@ export function useNarrator() {
 
       sentencesRef.current = splitNarrationSentences(t)
       setActiveSentenceIndex(-1)
-      setStatus('loading')
+      const replayCached = hasTtsNeuralCache(t)
+      setStatus(replayCached ? 'playing' : 'loading')
 
-      const tryPlayNeuralAb = async (ab, mimeFromHeader) => {
+      const playWithHtmlAudio = async (url) => {
         if (speakGenRef.current !== myGen) return false
 
-        prefetchedRef.current = { key: t, ab: ab.slice(0), mime: mimeFromHeader }
-
-        const ctx = audioContextRef.current
-        if (ctx && ctx.state !== 'closed') {
-          if (ctx.state === 'suspended') {
-            try {
-              await ctx.resume()
-            } catch {
-              /* ignore */
-            }
-          }
-          if (ctx.state === 'running') {
-            try {
-              const audioBuffer = await new Promise((resolve, reject) => {
-                void ctx.decodeAudioData(ab.slice(0), resolve, reject)
-              })
-              if (speakGenRef.current !== myGen) return false
-              const source = ctx.createBufferSource()
-              bufferSourceRef.current = source
-              source.buffer = audioBuffer
-              source.connect(ctx.destination)
-              const sourceGen = myGen
-              source.onended = () => {
-                bufferSourceRef.current = null
-                cancelSentenceTracking()
-                if (speakGenRef.current === sourceGen) {
-                  setStatus('idle')
-                  setActiveSentenceIndex(-1)
-                }
-              }
-              setStatus('playing')
-              source.start(0)
-              const ctxStart = ctx.currentTime
-              const duration = audioBuffer.duration
-              cancelSentenceTracking()
-              const tick = () => {
-                if (speakGenRef.current !== sourceGen) return
-                if (bufferSourceRef.current !== source) return
-                if (ctx.state === 'running' && Number.isFinite(duration) && duration > 0) {
-                  updateActiveFromRatio((ctx.currentTime - ctxStart) / duration)
-                }
-                rafIdRef.current = requestAnimationFrame(tick)
-              }
-              rafIdRef.current = requestAnimationFrame(tick)
-              return true
-            } catch {
-              stopNeuralWebAudio()
-            }
-          }
-        }
-
-        if (speakGenRef.current !== myGen) return false
-
-        const replayBlob = new Blob([ab], { type: mimeFromHeader })
-        const url = URL.createObjectURL(replayBlob)
         objectUrlRef.current = url
 
         const audio = new Audio()
@@ -312,7 +272,6 @@ export function useNarrator() {
         }
 
         try {
-          audio.load()
           setStatus('playing')
           await audio.play()
           return speakGenRef.current === myGen
@@ -322,10 +281,121 @@ export function useNarrator() {
         }
       }
 
+      const tryPlayFromBufferSource = async (audioBuffer) => {
+        const ctx = audioContextRef.current
+        if (!ctx || ctx.state === 'closed' || speakGenRef.current !== myGen) return false
+        if (ctx.state === 'suspended') {
+          try {
+            await ctx.resume()
+          } catch {
+            return false
+          }
+        }
+        if (ctx.state !== 'running') return false
+
+        try {
+          const source = ctx.createBufferSource()
+          bufferSourceRef.current = source
+          source.buffer = audioBuffer
+          source.connect(ctx.destination)
+          const sourceGen = myGen
+          source.onended = () => {
+            bufferSourceRef.current = null
+            cancelSentenceTracking()
+            if (speakGenRef.current === sourceGen) {
+              setStatus('idle')
+              setActiveSentenceIndex(-1)
+            }
+          }
+          setStatus('playing')
+          source.start(0)
+          const ctxStart = ctx.currentTime
+          const duration = audioBuffer.duration
+          cancelSentenceTracking()
+          const tick = () => {
+            if (speakGenRef.current !== sourceGen) return
+            if (bufferSourceRef.current !== source) return
+            if (ctx.state === 'running' && Number.isFinite(duration) && duration > 0) {
+              updateActiveFromRatio((ctx.currentTime - ctxStart) / duration)
+            }
+            rafIdRef.current = requestAnimationFrame(tick)
+          }
+          rafIdRef.current = requestAnimationFrame(tick)
+          return true
+        } catch {
+          stopNeuralWebAudio()
+          return false
+        }
+      }
+
+      /**
+       * @param {ArrayBuffer} ab
+       * @param {string} mimeFromHeader
+       * @param {{ fastReplay?: boolean }} [opts]
+       */
+      const tryPlayNeuralAb = async (ab, mimeFromHeader, opts = {}) => {
+        if (speakGenRef.current !== myGen) return false
+
+        prefetchedRef.current = { key: t, ab: ab.slice(0), mime: mimeFromHeader }
+
+        const entry = getTtsNeuralCache(t)
+        const fastReplay = Boolean(opts.fastReplay)
+
+        if (fastReplay && entry?.audioBuffer) {
+          const ok = await tryPlayFromBufferSource(entry.audioBuffer)
+          if (ok) return true
+        }
+
+        if (fastReplay) {
+          const url = getTtsObjectUrl(t)
+          if (url) {
+            const ok = await playWithHtmlAudio(url)
+            if (ok) return true
+          }
+        }
+
+        const ctx = audioContextRef.current
+        if (ctx && ctx.state !== 'closed' && !fastReplay) {
+          if (ctx.state === 'suspended') {
+            try {
+              await ctx.resume()
+            } catch {
+              /* ignore */
+            }
+          }
+          if (ctx.state === 'running') {
+            if (entry?.audioBuffer) {
+              const ok = await tryPlayFromBufferSource(entry.audioBuffer)
+              if (ok) return true
+            }
+            try {
+              const audioBuffer = await new Promise((resolve, reject) => {
+                void ctx.decodeAudioData(ab.slice(0), resolve, reject)
+              })
+              if (speakGenRef.current !== myGen) return false
+              if (entry) entry.audioBuffer = audioBuffer
+              const ok = await tryPlayFromBufferSource(audioBuffer)
+              if (ok) return true
+            } catch {
+              stopNeuralWebAudio()
+            }
+          }
+        }
+
+        if (speakGenRef.current !== myGen) return false
+
+        const url =
+          getTtsObjectUrl(t) ??
+          URL.createObjectURL(new Blob([ab], { type: mimeFromHeader }))
+        return playWithHtmlAudio(url)
+      }
+
       try {
         const cached = prefetchedRef.current
         if (cached?.key === t && cached.ab.byteLength >= 64) {
-          const ok = await tryPlayNeuralAb(cached.ab.slice(0), cached.mime)
+          const ok = await tryPlayNeuralAb(cached.ab.slice(0), cached.mime, {
+            fastReplay: replayCached,
+          })
           if (ok && speakGenRef.current === myGen) return
         }
 
@@ -333,7 +403,9 @@ export function useNarrator() {
 
         const disk = getTtsNeuralCache(t)
         if (disk?.ab?.byteLength >= 64) {
-          const ok = await tryPlayNeuralAb(disk.ab.slice(0), disk.mime)
+          const ok = await tryPlayNeuralAb(disk.ab.slice(0), disk.mime, {
+            fastReplay: true,
+          })
           if (ok && speakGenRef.current === myGen) return
         }
 
@@ -346,6 +418,8 @@ export function useNarrator() {
 
         if (fetched && fetched.ab.byteLength >= 64) {
           setTtsNeuralCache(t, fetched.ab.slice(0), fetched.mime)
+          const ctx = audioContextRef.current
+          if (ctx) predecodeTtsBuffer(t, ctx)
           const ok = await tryPlayNeuralAb(fetched.ab.slice(0), fetched.mime)
           if (ok && speakGenRef.current === myGen) return
         }

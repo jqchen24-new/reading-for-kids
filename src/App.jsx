@@ -4,6 +4,7 @@ import { EndingScreen } from './components/EndingScreen.jsx'
 import { SceneDisplay } from './components/SceneDisplay.jsx'
 import { SetupScreen } from './components/SetupScreen.jsx'
 import { useNarrator } from './hooks/useNarrator.js'
+import { warmTtsNeuralCaches } from './lib/ttsNeuralCache.js'
 import { aggregateCastFromPages } from './lib/illustrationCastMap.js'
 import { fetchSceneIllustration, fetchStoryScene } from './lib/storyEngine.js'
 import { isIOSLikeDevice } from './lib/platform.js'
@@ -92,6 +93,13 @@ export default function App() {
     storyPages.length > 0 && safePageIndex < storyPages.length - 1 && !loading
 
   useEffect(() => {
+    const narrations = storyPages
+      .map((p) => (typeof p.scene?.narration === 'string' ? p.scene.narration.trim() : ''))
+      .filter(Boolean)
+    warmTtsNeuralCaches(narrations)
+  }, [storyPages])
+
+  useEffect(() => {
     if (!iosSpeechGestureOnly) return
     if (!currentScene?.narration?.trim()) return
     if (loading) return
@@ -107,7 +115,7 @@ export default function App() {
     if (!currentScene?.narration?.trim()) return
     if (loading) return
     if (phase === 'scene' || phase === 'ending') {
-      speak(currentScene.narration)
+      speak(currentScene.narration.trim())
     }
   }, [phase, currentScene?.narration, loading, speak, iosSpeechGestureOnly])
 

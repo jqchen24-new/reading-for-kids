@@ -1,13 +1,15 @@
 /**
- * Session-scoped cache for neural TTS blobs (same narration replay / prefetch hits).
- * Uses sessionStorage with size caps; fails quietly in private mode or quota errors.
+ * Neural TTS cache: in-memory (instant replay) + sessionStorage (survives refresh in-tab).
+ * Keys are derived from narration text. Reuses blob URLs so replay skips decode + base64 work.
  */
 
 const INDEX_KEY = 'rff-tts-v1-index'
 const ENTRY_PREFIX = 'rff-tts-v1:'
-const MAX_ENTRIES = 18
-/** Skip caching huge responses (base64 inflates ~4/3). */
+const MAX_ENTRIES = 24
 const MAX_BYTES_TO_CACHE = 750_000
+
+/** @type {Map<string, { ab: ArrayBuffer, mime: string, objectUrl?: string, audioBuffer?: AudioBuffer }>} */
+const memory = new Map()
 
 /**
  * @param {string} text
@@ -70,6 +72,7 @@ function writeIndex(keys) {
 }
 
 function removeEntry(storageKey) {
+  memory.delete(storageKey)
   try {
     sessionStorage.removeItem(storageKey)
   } catch {
@@ -78,14 +81,11 @@ function removeEntry(storageKey) {
 }
 
 /**
- * @param {string} text
- * @returns {{ mime: string, ab: ArrayBuffer } | null}
+ * @param {string} key
+ * @returns {{ ab: ArrayBuffer, mime: string } | null}
  */
-export function getTtsNeuralCache(text) {
+function readSessionEntry(key) {
   if (typeof sessionStorage === 'undefined') return null
-  const t = typeof text === 'string' ? text.trim() : ''
-  if (!t) return null
-  const key = cacheKeyForText(t)
   try {
     const raw = sessionStorage.getItem(key)
     if (!raw) return null
@@ -95,22 +95,20 @@ export function getTtsNeuralCache(text) {
     if (!b64 || b64.length < 88) return null
     const ab = base64ToArrayBuffer(b64)
     if (ab.byteLength < 64) return null
-    return { mime, ab }
+    return { ab, mime }
   } catch {
     return null
   }
 }
 
 /**
- * @param {string} text
- * @param {ArrayBuffer} ab
- * @param {string} mime
+ * @param {string} key
+ * @param {{ ab: ArrayBuffer, mime: string }} entry
  */
-export function setTtsNeuralCache(text, ab, mime) {
+function writeSessionEntry(key, entry) {
   if (typeof sessionStorage === 'undefined') return
-  const t = typeof text === 'string' ? text.trim() : ''
-  if (!t || ab.byteLength < 64 || ab.byteLength > MAX_BYTES_TO_CACHE) return
-  const key = cacheKeyForText(t)
+  const { ab, mime } = entry
+  if (ab.byteLength < 64 || ab.byteLength > MAX_BYTES_TO_CACHE) return
   let b64
   try {
     b64 = arrayBufferToBase64(ab.slice(0))
@@ -135,5 +133,144 @@ export function setTtsNeuralCache(text, ab, mime) {
     } catch {
       /* ignore */
     }
+  }
+}
+
+/**
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function hasTtsNeuralCache(text) {
+  const t = typeof text === 'string' ? text.trim() : ''
+  if (!t) return false
+  const key = cacheKeyForText(t)
+  const mem = memory.get(key)
+  if (mem?.ab?.byteLength >= 64) return true
+  if (typeof sessionStorage === 'undefined') return false
+  try {
+    return Boolean(sessionStorage.getItem(key))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * @param {string} text
+ * @returns {{ ab: ArrayBuffer, mime: string, objectUrl?: string, audioBuffer?: AudioBuffer } | null}
+ */
+export function getTtsNeuralCache(text) {
+  const t = typeof text === 'string' ? text.trim() : ''
+  if (!t) return null
+  const key = cacheKeyForText(t)
+
+  const mem = memory.get(key)
+  if (mem?.ab?.byteLength >= 64) {
+    return mem
+  }
+
+  const fromSession = readSessionEntry(key)
+  if (!fromSession) return null
+
+  const entry = { ab: fromSession.ab, mime: fromSession.mime }
+  memory.set(key, entry)
+  return entry
+}
+
+/**
+ * @param {string} text
+ * @param {ArrayBuffer} ab
+ * @param {string} mime
+ */
+export function setTtsNeuralCache(text, ab, mime) {
+  const t = typeof text === 'string' ? text.trim() : ''
+  if (!t || ab.byteLength < 64 || ab.byteLength > MAX_BYTES_TO_CACHE) return
+  const key = cacheKeyForText(t)
+
+  const prev = memory.get(key)
+  if (prev?.objectUrl) {
+    try {
+      URL.revokeObjectURL(prev.objectUrl)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const entry = { ab: ab.slice(0), mime: mime || 'audio/mpeg' }
+  memory.set(key, entry)
+
+  const persist = () => writeSessionEntry(key, entry)
+  if (typeof queueMicrotask !== 'undefined') {
+    queueMicrotask(persist)
+  } else {
+    persist()
+  }
+}
+
+/**
+ * Reused object URL for HTML Audio replay (do not revoke while cached).
+ * @param {string} text
+ * @returns {string | null}
+ */
+export function getTtsObjectUrl(text) {
+  const entry = getTtsNeuralCache(text)
+  if (!entry) return null
+  if (!entry.objectUrl) {
+    entry.objectUrl = URL.createObjectURL(new Blob([entry.ab], { type: entry.mime }))
+  }
+  return entry.objectUrl
+}
+
+/**
+ * @param {string | undefined | null} url
+ */
+export function isCachedTtsObjectUrl(url) {
+  if (!url) return false
+  for (const entry of memory.values()) {
+    if (entry.objectUrl === url) return true
+  }
+  return false
+}
+
+/**
+ * @param {string} text
+ * @param {AudioContext} ctx
+ */
+export function predecodeTtsBuffer(text, ctx) {
+  const t = typeof text === 'string' ? text.trim() : ''
+  if (!t || !ctx || ctx.state === 'closed') return
+  const entry = getTtsNeuralCache(t)
+  if (!entry || entry.audioBuffer) return
+  const ab = entry.ab.slice(0)
+  void ctx.decodeAudioData(
+    ab,
+    (buf) => {
+      entry.audioBuffer = buf
+    },
+    () => {
+      /* ignore */
+    },
+  )
+}
+
+/**
+ * Load session blobs into memory during idle time (e.g. when flipping pages).
+ * @param {string[]} texts
+ */
+export function warmTtsNeuralCaches(texts) {
+  const list = (Array.isArray(texts) ? texts : [])
+    .map((x) => (typeof x === 'string' ? x.trim() : ''))
+    .filter(Boolean)
+  if (list.length === 0) return
+
+  const run = () => {
+    for (const t of list) {
+      getTtsNeuralCache(t)
+    }
+  }
+
+  if (typeof requestIdleCallback !== 'undefined') {
+    requestIdleCallback(run, { timeout: 600 })
+  } else {
+    queueMicrotask(run)
   }
 }
