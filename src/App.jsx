@@ -317,7 +317,7 @@ export default function App() {
   }, [currentScene, speak, primePlaybackFromGesture])
 
   return (
-    <div className="min-h-svh bg-slate-950 text-slate-100">
+    <div className="min-h-svh bg-gradient-to-b from-stone-900 via-stone-800 to-stone-900 text-stone-100">
       <main className="mx-auto flex min-h-svh max-w-3xl flex-col items-center pb-12 pt-4">
         {phase === 'setup' && (
           <SetupScreen

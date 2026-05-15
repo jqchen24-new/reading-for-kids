@@ -23,7 +23,7 @@ export function NarrationText({
   const sentences = splitNarrationSentences(text)
   if (sentences.length === 0) return text
 
-  const baseClass = `text-left text-xl leading-relaxed text-slate-100 sm:text-2xl sm:leading-relaxed${
+  const baseClass = `font-serif text-left text-xl leading-8 text-stone-800 sm:text-2xl sm:leading-9${
     dimmed ? ' opacity-70' : ''
   } ${className}`.trim()
 
@@ -32,7 +32,7 @@ export function NarrationText({
       {sentences.map((s, i) => {
         const isActive = i === activeSentenceIndex
         const cls = isActive
-          ? 'rounded bg-amber-400/25 px-0.5 text-amber-50 shadow-[0_0_0_2px_rgba(251,191,36,0.25)] transition-colors duration-150'
+          ? 'rounded bg-amber-300/70 text-stone-900 shadow-[0_0_0_2px_rgba(217,119,6,0.18)] transition-colors duration-150'
           : 'transition-colors duration-150'
         return (
           <span key={`${s.start}-${s.end}`} className={cls}>

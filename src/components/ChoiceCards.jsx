@@ -9,7 +9,7 @@ export function ChoiceCards({ choices, onChoose, disabled }) {
           type="button"
           onClick={() => onChoose(label)}
           disabled={disabled}
-          className="min-h-[64px] rounded-2xl border-2 border-amber-500/40 bg-amber-500/10 px-4 py-4 text-left text-lg font-semibold leading-snug text-amber-50 transition hover:border-amber-400 hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-45 sm:min-h-[72px] sm:text-xl"
+          className="min-h-[64px] rounded-2xl border-2 border-amber-500/70 bg-amber-100 px-4 py-4 text-left font-serif text-lg font-semibold leading-snug text-stone-800 shadow-md shadow-stone-900/30 transition hover:border-amber-500 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-45 sm:min-h-[72px] sm:text-xl"
         >
           {label}
         </button>
