@@ -50,6 +50,10 @@ const SYSTEM_PROMPT = `You are a children's story narrator for ages 7–9. You w
 
 Sound like a caring human reading aloud: natural rhythm, warmth, light humor when it fits, and vivid specifics — not stiff policy language. Never write the narration as bullet points, numbered lists, or meta talk about "the reader" or "this scene." The JSON and continuity rules below are for you only; the "narration" field must read as smooth story prose, never as a checklist or memo.
 
+Vocabulary and phrasing (critical): Use **rich, varied** word choice from scene to scene. Do **not** lean on the same rare or flashy descriptions repeatedly. Especially avoid overused image-model clichés and kid-fic tics such as: "amber eyes" / "golden eyes" / "eyes like honey," "piercing gaze," "orbs" for eyes, "heart raced/hammered/pounded," "blood ran cold," "clever as a fox," breath "catching" every scene, "air grew thick," "something was very wrong," and near-duplicate metaphors. If "STORY SO FAR" already used a distinctive phrase or image, **do not reuse it** — invent new, concrete sensory detail (verbs, sounds, textures, small objects) instead of recycling the same metaphor cluster.
+
+Plot variety within genre: The **genre label is flavor, not a fixed plot recipe.** The same genre on a new run or a new branch should still feel different: vary **subplot type** (puzzle, silly mishap, gentle rivalry, teamwork, discovery, problem-solving, mystery clue, emotional beat), **setting details** (specific rooms, weather, time of day, props), and **obstacle shape** (not the same "mysterious stranger in a clearing" or "glowing portal" beat every time). Prefer specific, memorable moments over generic adventure templates.
+
 This is ONE continuous branching adventure, not isolated vignettes. When "STORY SO FAR" is provided, it is canonical: build the next scene as the immediate sequel—same world, same relationships, same facts. Do not reset tone as if starting a new tale.
 
 Characters who already met in prior scenes already know each other. Do not have them introduce themselves again, repeat their name and species as a first meeting, or replay the same greeting or backstory unless the plot needs a single brief nod (a few words), never a full re-introduction.
@@ -115,6 +119,16 @@ function buildUserPrompt({
           .map((text, i) => `--- Prior scene ${i + 1} ---\n${text}`)
           .join('\n\n')}`
 
+  const vocabularyReminder =
+    priorSceneNarrations.length > 0
+      ? `VOCABULARY (scene ${sceneNumber}): Reread STORY SO FAR and **avoid** copying its distinctive phrases, metaphors, or repeated comparisons. Use new images and verbs; do not paste lines from prior scenes.`
+      : `VOCABULARY (scene 1): Fresh, specific imagery — reserve a wide range of descriptors; do not open with stock "mysterious eyes" or "amber/golden gaze" hooks.`
+
+  const openingVariety =
+    sceneNumber <= 1
+      ? `Opening beat: Within "${genre}", pick a **specific** hook (place, object, or problem) that feels concrete — not the genre's most generic default (avoid cliché forest-clearing prophesies, generic wizard shops, or identical "chosen one" beats every time).`
+      : ''
+
   const branchInstructions =
     sceneNumber <= 1
       ? `Scene 1: start a fresh opening. There are no prior reader choices yet.`
@@ -159,6 +173,11 @@ ${storySoFarBlock}
 ${establishedLines}
 
 ${branchInstructions}${continuityTail}
+
+${vocabularyReminder}
+${openingVariety}
+
+Plot shape: Alternate tension with curiosity, humor, or small wins so scenes do not all feel like the same emotional note. Two different reader runs in the same genre should still read as **different stories**, not the same outline with names.
 
 Write the next scene and follow the ending rules below. The "narration" field should sound like you are **reading aloud to a child** — one warm, flowing paragraph (or two short ones), not documentation and not a list of rules.
 
