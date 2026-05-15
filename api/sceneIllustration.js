@@ -83,21 +83,34 @@ export async function generateSceneIllustrationDataUrl(input) {
     `HERO WARDROBE (absolute — same shirt/pants/dress layers and colors every image): "${visualLock.heroOutfitExact}". ACCESSORY (always): "${visualLock.heroAccessoryExact}". ` +
     `The protagonist "${hero}" must never get a new costume from story text — only this wardrobe (or the reference image) with pose changed. `
 
+  const singleProtagonistRule = refParsed
+    ? `CRITICAL — EXACTLY ONE "${hero}": The attached reference already shows the protagonist once. Your output must contain only ONE instance of this child (one body, one face in focus). Do NOT draw "${hero}" twice, as twins, as a clone, or as reference-plus-a-second-copy from the text. Do not treat the reference as a separate character to place beside another version of "${hero}". `
+    : `Show exactly ONE protagonist named "${hero}" in the image — never two identical children who look like the same hero. `
+
+  const heroIdentityBlock = refParsed
+    ? `PROTAGONIST: The attached reference portrait is "${hero}" — the only protagonist in this image. Wardrobe: ${visualLock.heroOutfitExact}. Accessory: ${visualLock.heroAccessoryExact}.`
+    : visualLock.lockBlock
+
   const promptText = [
-    visualLock.lockBlock,
+    singleProtagonistRule,
+    heroIdentityBlock,
     outfitLock,
     supportLock,
     'OUTFIT AND CAST INTEGRITY: For the hero and every name in SUPPORTING CAST LOCK, only the LOCK text defines their clothes, hair, and body. SCENE ACTION describes what happens — it must NOT replace locked outfits, haircuts, species, or gender presentation. If the narration mentions armor, uniforms, disguises, or costume changes, show those as removable props (held helmet, folded cloak) or background elements, not as a redesign of locked characters.',
-    "The narration below describes ONLY what is happening (action, setting, props). Do not let it change the protagonist's locked face, hair length, skin tone, gender presentation, or base outfit colors.",
+    refParsed
+      ? `SCENE ACTION describes pose, setting, and supporting characters only. The protagonist in SCENE ACTION is the SAME person as the reference image — not an additional child.`
+      : "The narration below describes ONLY what is happening (action, setting, props). Do not let it change the protagonist's locked face, hair length, skin tone, gender presentation, or base outfit colors.",
     "Children's picture-book illustration for ages 7–9.",
     'Warm colors, friendly and imaginative, single clear moment, painterly or soft digital style.',
     'Do not include readable text, letters, captions, logos, or watermarks in the image.',
     'Safe and mild — no gore, weapons, or scary horror imagery.',
     `Genre: ${genre}. Protagonist name (for identity only): ${hero}.`,
     branchLine,
-    `SCENE ACTION (setting, props, other characters, body pose — NOT new clothes for "${hero}"): ${narrationForImage}`,
+    `SCENE ACTION (setting, props, supporting characters, body pose — NOT a second "${hero}"; NOT new clothes for "${hero}"): ${narrationForImage}`,
     outfitLock,
-    visualLock.lockRecap,
+    refParsed
+      ? `FINAL CHECK: Exactly one "${hero}" matching the reference — same face and outfit; only pose and scene change.`
+      : visualLock.lockRecap,
   ]
     .filter(Boolean)
     .join(' ')
@@ -131,7 +144,7 @@ export async function generateSceneIllustrationDataUrl(input) {
         { inlineData: { mimeType: refParsed.mimeType, data: refParsed.data } },
         {
           text: (
-            'The first input is a reference image of the protagonist from the opening scene. Generate ONE new illustration: keep the same child — same facial identity, hair shape and color, skin tone, body, gender presentation, and the same core outfit colors and garment types as the reference. Change only pose, expression, framing, lighting, background, and supporting characters per the text below. If any text conflicts with the reference face or outfit, follow the reference. The written OUTFIT lines in the prompt also define colors — if they disagree with the reference, prefer the REFERENCE image for cloth shapes and colors. ' +
+            'INPUT 1 is a reference portrait of the protagonist from scene 1 (one child only). Generate ONE new full scene illustration — not a collage, not two copies of this child. Reuse that exact face, hair, skin, body, and outfit from the reference in a new pose; add background and supporting characters from the text. Never place the reference figure twice. If SCENE ACTION names the protagonist, that name refers to this same child from the reference — draw them once. If text conflicts with the reference face or outfit, follow the reference. ' +
             promptText
           ).slice(0, textMax),
         },
