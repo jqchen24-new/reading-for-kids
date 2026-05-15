@@ -379,6 +379,23 @@ export function isCachedHtmlAudioElement(audio) {
   return false
 }
 
+/** Stop every cached <audio> element (prevents overlap when changing scenes). */
+export function pauseAllTtsPlayback() {
+  for (const entry of memory.values()) {
+    const audio = entry.htmlAudio
+    if (!audio) continue
+    try {
+      audio.pause()
+      audio.currentTime = 0
+      audio.ontimeupdate = null
+      audio.onended = null
+      audio.onerror = null
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 /**
  * @param {string} text
  * @param {AudioContext} ctx

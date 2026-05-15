@@ -114,10 +114,14 @@ export default function App() {
     if (iosSpeechGestureOnly) return
     if (!currentScene?.narration?.trim()) return
     if (loading) return
-    if (phase === 'scene' || phase === 'ending') {
-      speak(currentScene.narration.trim())
+    if (phase !== 'scene' && phase !== 'ending') return
+
+    const narration = currentScene.narration.trim()
+    speak(narration)
+    return () => {
+      stop()
     }
-  }, [phase, currentScene?.narration, loading, speak, iosSpeechGestureOnly])
+  }, [phase, currentScene?.narration, loading, speak, stop, iosSpeechGestureOnly])
 
   const choiceHistoryKey = useMemo(() => choiceHistory.join('\u0001'), [choiceHistory])
 

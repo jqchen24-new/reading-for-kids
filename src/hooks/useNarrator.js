@@ -13,6 +13,7 @@ import {
   hasTtsNeuralCache,
   isCachedHtmlAudioElement,
   isCachedTtsObjectUrl,
+  pauseAllTtsPlayback,
   predecodeTtsBuffer,
   prepareCachedHtmlAudio,
   setTtsNeuralCache,
@@ -146,6 +147,11 @@ export function useNarrator() {
     abortRef.current?.abort()
     abortRef.current = null
     stopNeuralWebAudio()
+    pauseAllTtsPlayback()
+    const ctx = audioContextRef.current
+    if (ctx && ctx.state === 'running') {
+      void ctx.suspend()
+    }
     if (audioRef.current) {
       const audio = audioRef.current
       audio.pause()
