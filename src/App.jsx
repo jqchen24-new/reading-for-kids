@@ -104,10 +104,7 @@ export default function App() {
     if (!currentScene?.narration?.trim()) return
     if (loading) return
     if (phase !== 'scene' && phase !== 'ending') return
-    const t = window.setTimeout(() => {
-      prefetchNarration(currentScene.narration.trim())
-    }, 400)
-    return () => window.clearTimeout(t)
+    prefetchNarration(currentScene.narration.trim())
   }, [currentScene?.narration, iosSpeechGestureOnly, loading, phase, prefetchNarration])
 
   useEffect(() => {
@@ -227,6 +224,10 @@ export default function App() {
         choiceHistory: [],
         establishedIllustrationCast: {},
       })
+      if (iosSpeechGestureOnly) {
+        const n = typeof scene?.narration === 'string' ? scene.narration.trim() : ''
+        if (n) prefetchNarration(n)
+      }
       setStoryPages([
         {
           choiceHistory: [],
@@ -240,7 +241,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [genre, heroGender, resolvedHero, stop, primePlaybackFromGesture])
+  }, [genre, heroGender, resolvedHero, iosSpeechGestureOnly, prefetchNarration, stop, primePlaybackFromGesture])
 
   const choose = useCallback(
     async (label) => {
@@ -274,6 +275,10 @@ export default function App() {
           establishedIllustrationCast: castBase,
           priorSceneNarrations,
         })
+        if (iosSpeechGestureOnly) {
+          const n = typeof scene?.narration === 'string' ? scene.narration.trim() : ''
+          if (n) prefetchNarration(n)
+        }
         setStoryPages([
           ...truncated,
           {
@@ -289,7 +294,17 @@ export default function App() {
         setLoading(false)
       }
     },
-    [genre, heroGender, heroKey, loading, resolvedHero, stop, primePlaybackFromGesture],
+    [
+      genre,
+      heroGender,
+      heroKey,
+      iosSpeechGestureOnly,
+      loading,
+      prefetchNarration,
+      resolvedHero,
+      stop,
+      primePlaybackFromGesture,
+    ],
   )
 
   const goStoryBack = useCallback(() => {

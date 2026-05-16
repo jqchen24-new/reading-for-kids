@@ -109,6 +109,8 @@ export function useNarrator() {
   /** Cached neural response for instant replay / iOS prefetch. */
   const prefetchedRef = useRef(null)
   const prefetchAbortRef = useRef(null)
+  /** Avoid aborting an in-flight `/api/tts` when the same narration is prefetched twice (e.g. after fetch + effect). */
+  const prefetchInFlightKeyRef = useRef(/** @type {string | null} */ (null))
   const speakGenRef = useRef(0)
   /** Sentence spans for whichever text is currently being read aloud. */
   const sentencesRef = useRef(
@@ -212,6 +214,7 @@ export function useNarrator() {
     speakGenRef.current += 1
     prefetchAbortRef.current?.abort()
     prefetchAbortRef.current = null
+    prefetchInFlightKeyRef.current = null
     prefetchedRef.current = null
     cleanupAudio()
     setStatus('idle')
@@ -225,7 +228,25 @@ export function useNarrator() {
     const t = typeof text === 'string' ? text.trim() : ''
     if (!t) return
 
+    const cached = getTtsNeuralCache(t)
+    if (cached?.ab?.byteLength >= 64) {
+      prefetchAbortRef.current?.abort()
+      prefetchAbortRef.current = null
+      prefetchInFlightKeyRef.current = null
+      prefetchedRef.current = { key: t, ab: cached.ab.slice(0), mime: cached.mime }
+      getTtsObjectUrl(t)
+      void prepareCachedHtmlAudio(t)
+      const ctx = audioContextRef.current
+      if (ctx) void predecodeTtsBuffer(t, ctx)
+      return
+    }
+
+    if (prefetchInFlightKeyRef.current === t) {
+      return
+    }
+
     prefetchAbortRef.current?.abort()
+    prefetchInFlightKeyRef.current = t
     const ac = new AbortController()
     prefetchAbortRef.current = ac
 
@@ -238,7 +259,7 @@ export function useNarrator() {
           getTtsObjectUrl(t)
           void prepareCachedHtmlAudio(t)
           const ctx = audioContextRef.current
-          if (ctx) predecodeTtsBuffer(t, ctx)
+          if (ctx) void predecodeTtsBuffer(t, ctx)
           return
         }
         const fetched = await fetchNeuralTtsWithRetry(t, ac.signal)
@@ -246,10 +267,17 @@ export function useNarrator() {
         prefetchedRef.current = { key: t, ab: fetched.ab.slice(0), mime: fetched.mime }
         setTtsNeuralCache(t, fetched.ab.slice(0), fetched.mime)
         const ctx = audioContextRef.current
-        if (ctx) predecodeTtsBuffer(t, ctx)
+        if (ctx) void predecodeTtsBuffer(t, ctx)
         void prepareCachedHtmlAudio(t)
       } catch {
         /* aborted or network */
+      } finally {
+        if (prefetchInFlightKeyRef.current === t) {
+          prefetchInFlightKeyRef.current = null
+        }
+        if (prefetchAbortRef.current === ac) {
+          prefetchAbortRef.current = null
+        }
       }
     })()
   }, [])
