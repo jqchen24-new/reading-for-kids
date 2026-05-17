@@ -19,6 +19,8 @@ export function EndingScreen({
   canGoStoryBack = false,
   canGoStoryForward = false,
   storyNavDisabled = false,
+  playAgainLoading = false,
+  playAgainCaption = '',
   onPlayAgain,
   illustrationUrl = null,
   illustrationStatus = 'idle',
@@ -154,13 +156,27 @@ export function EndingScreen({
         disabled={!speechSupported || !narration?.trim()}
       />
 
-      <button
-        type="button"
-        onClick={onPlayAgain}
-        className="min-h-[56px] w-full max-w-md rounded-2xl bg-amber-400 px-6 py-3 text-xl font-bold text-stone-900 shadow-lg transition hover:bg-amber-300 sm:w-auto sm:min-w-[280px]"
-      >
-        Play again
-      </button>
+      <div className="flex w-full max-w-md flex-col items-stretch gap-3">
+        <button
+          type="button"
+          onClick={onPlayAgain}
+          disabled={playAgainLoading}
+          className="min-h-[56px] w-full rounded-2xl bg-amber-400 px-6 py-3 text-xl font-bold text-stone-900 shadow-lg transition hover:bg-amber-300 disabled:cursor-wait disabled:opacity-60"
+        >
+          {playAgainLoading ? 'Starting your new adventure…' : 'Start a new adventure'}
+        </button>
+        {playAgainCaption && !playAgainLoading && (
+          <p className="text-center text-sm leading-snug text-stone-400">{playAgainCaption}</p>
+        )}
+        <button
+          type="button"
+          onClick={onGoHome}
+          disabled={playAgainLoading}
+          className="min-h-[48px] w-full rounded-2xl border-2 border-stone-500/80 bg-stone-800/60 px-6 py-2.5 text-base font-semibold text-stone-100 transition hover:border-amber-300/70 hover:bg-stone-700/80 hover:text-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Change hero or genre
+        </button>
+      </div>
     </div>
   )
 }

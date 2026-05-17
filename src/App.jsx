@@ -15,6 +15,26 @@ import { isIOSLikeDevice } from './lib/platform.js'
 
 const EMPTY_CHOICE_HISTORY = Object.freeze([])
 
+/** Lowercase genre phrase for play-again copy (matches SetupScreen labels). */
+const GENRE_LABELS = Object.freeze({
+  Adventure: 'adventure',
+  Magic: 'magic',
+  Animals: 'animals',
+  Space: 'space',
+  Mystery: 'mystery',
+  Comedy: 'silly comedy',
+  Fantasy: 'fantasy',
+  Ocean: 'ocean',
+  Fairytale: 'fairytale',
+  Superheroes: 'superheroes',
+  Dinosaurs: 'dinosaurs',
+  Sports: 'sports',
+  Robots: 'robots',
+  Woodland: 'woodland',
+  Pirates: 'pirates',
+  TimeTravel: 'time travel',
+})
+
 export default function App() {
   const [storyPages, setStoryPages] = useState(
     /** @type {StoryPage[]} */ ([]),
@@ -64,6 +84,11 @@ export default function App() {
   )
 
   const heroKey = useMemo(() => resolvedHero.trim().toLowerCase(), [resolvedHero])
+
+  const playAgainCaption = useMemo(() => {
+    const genrePhrase = GENRE_LABELS[genre] ?? genre.toLowerCase()
+    return `Same hero (${resolvedHero}) and ${genrePhrase} world — a brand-new story, not a replay.`
+  }, [genre, resolvedHero])
 
   const safePageIndex = useMemo(
     () => (storyPages.length === 0 ? 0 : Math.min(Math.max(0, pageIndex), storyPages.length - 1)),
@@ -322,20 +347,29 @@ export default function App() {
     setPageIndex((i) => Math.min(max, i + 1))
   }, [canGoStoryForward, stop, primePlaybackFromGesture])
 
-  const goHome = useCallback(() => {
+  const resetStoryArtifacts = useCallback(() => {
     illustrationsOffRef.current = false
     illustrationByPathKeyRef.current = {}
     heroIllustrationAnchorRef.current = null
+    setIllustrationUrl(null)
+    setIllustrationStatus('idle')
+    setIllustrationDisableCode(null)
+  }, [])
+
+  const goHome = useCallback(() => {
+    resetStoryArtifacts()
     stop()
     setStoryPages([])
     setPageIndex(0)
     setError(null)
-    setIllustrationUrl(null)
-    setIllustrationStatus('idle')
-    setIllustrationDisableCode(null)
-  }, [stop])
+  }, [resetStoryArtifacts, stop])
 
-  const playAgain = goHome
+  const playAgain = useCallback(async () => {
+    if (loading) return
+    resetStoryArtifacts()
+    setError(null)
+    await startStory()
+  }, [loading, resetStoryArtifacts, startStory])
 
   const replayNarration = useCallback(() => {
     stop()
@@ -421,6 +455,8 @@ export default function App() {
             canGoStoryBack={canGoStoryBack}
             canGoStoryForward={canGoStoryForward}
             storyNavDisabled={loading}
+            playAgainLoading={loading}
+            playAgainCaption={playAgainCaption}
             onPlayAgain={playAgain}
             illustrationUrl={illustrationUrl}
             illustrationStatus={illustrationStatus}
